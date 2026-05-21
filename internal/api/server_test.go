@@ -72,6 +72,20 @@ func TestSprintLifecycle(t *testing.T) {
 	if resp2.StatusCode != http.StatusOK {
 		t.Errorf("status = %d, want 200", resp2.StatusCode)
 	}
+	var sprintBody map[string]interface{}
+	if err := json.NewDecoder(resp2.Body).Decode(&sprintBody); err != nil {
+		t.Fatalf("decode sprint GET: %v", err)
+	}
+	sprint, _ := sprintBody["sprint"].(map[string]interface{})
+	if sprint == nil {
+		t.Fatalf("sprint GET response missing 'sprint' key; got %v", sprintBody)
+	}
+	if sprint["name"] != "Test Sprint" {
+		t.Errorf("sprint name = %v, want Test Sprint", sprint["name"])
+	}
+	if sprint["id"] != "v7300-test" {
+		t.Errorf("sprint id = %v, want v7300-test", sprint["id"])
+	}
 
 	resp3, err := http.Post(ts.URL+"/api/v1/sprints/v7300-test/close", "application/json", nil)
 	if err != nil {
@@ -136,6 +150,25 @@ func TestAgentRegistration(t *testing.T) {
 	if resp2.StatusCode != http.StatusOK {
 		t.Errorf("list status = %d, want 200", resp2.StatusCode)
 	}
+	var agentResp map[string]interface{}
+	if err := json.NewDecoder(resp2.Body).Decode(&agentResp); err != nil {
+		t.Fatalf("decode agent list: %v", err)
+	}
+	agentList, ok := agentResp["agents"].([]interface{})
+	if !ok {
+		t.Fatalf("agent response missing 'agents' array; got %v", agentResp)
+	}
+	found := false
+	for _, raw := range agentList {
+		a, _ := raw.(map[string]interface{})
+		if a["id"] == "test-agent" || a["agent_id"] == "test-agent" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("agent list does not contain test-agent; got %v", agentList)
+	}
 }
 
 func TestHandoffPublish(t *testing.T) {
@@ -153,5 +186,15 @@ func TestHandoffPublish(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusCreated {
 		t.Errorf("handoff status = %d, want 201", resp.StatusCode)
+	}
+	var handoffBody map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&handoffBody); err != nil {
+		t.Fatalf("decode handoff response: %v", err)
+	}
+	if handoffBody["handoff_id"] == nil || handoffBody["handoff_id"] == "" {
+		t.Errorf("handoff response missing handoff_id; got %v", handoffBody)
+	}
+	if handoffBody["status"] != "published" {
+		t.Errorf("handoff status = %v, want published", handoffBody["status"])
 	}
 }
