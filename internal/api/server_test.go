@@ -3,10 +3,13 @@ package api_test
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"log/slog"
@@ -196,5 +199,230 @@ func TestHandoffPublish(t *testing.T) {
 	}
 	if handoffBody["status"] != "published" {
 		t.Errorf("handoff status = %v, want published", handoffBody["status"])
+	}
+}
+
+// --- Error Path Tests (v7462-v7465) ---
+
+func TestSprintCreate_InvalidJSON(t *testing.T) {
+	ts := setupTestServer(t)
+	defer ts.Close()
+
+	resp, err := http.Post(ts.URL+"/api/v1/sprints", "application/json", bytes.NewBufferString(`{bad json`))
+	if err != nil {
+		t.Fatalf("POST /sprints: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", resp.StatusCode)
+	}
+	var body map[string]string
+	json.NewDecoder(resp.Body).Decode(&body)
+	if body["error"] == "" {
+		t.Error("expected error message in response body")
+	}
+}
+
+func TestSprintCreate_MissingRequiredFields(t *testing.T) {
+	ts := setupTestServer(t)
+	defer ts.Close()
+
+	cases := []struct {
+		name    string
+		payload string
+	}{
+		{"missing id", `{"name":"Test"}`},
+		{"missing name", `{"id":"s1"}`},
+		{"both empty", `{"id":"","name":""}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			resp, err := http.Post(ts.URL+"/api/v1/sprints", "application/json", bytes.NewBufferString(tc.payload))
+			if err != nil {
+				t.Fatalf("POST: %v", err)
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusBadRequest {
+				t.Errorf("status = %d, want 400", resp.StatusCode)
+			}
+		})
+	}
+}
+
+func TestSprintCreate_Duplicate(t *testing.T) {
+	ts := setupTestServer(t)
+	defer ts.Close()
+
+	payload := `{"id":"dup-sprint","name":"First"}`
+	resp, _ := http.Post(ts.URL+"/api/v1/sprints", "application/json", bytes.NewBufferString(payload))
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("first create status = %d, want 201", resp.StatusCode)
+	}
+
+	resp2, _ := http.Post(ts.URL+"/api/v1/sprints", "application/json", bytes.NewBufferString(payload))
+	defer resp2.Body.Close()
+	if resp2.StatusCode != http.StatusConflict {
+		t.Errorf("duplicate create status = %d, want 409", resp2.StatusCode)
+	}
+}
+
+func TestSprintStatus_NotFound(t *testing.T) {
+	ts := setupTestServer(t)
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/api/v1/sprints/nonexistent-sprint-xyz")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", resp.StatusCode)
+	}
+}
+
+func TestTicketCreate_InvalidJSON(t *testing.T) {
+	ts := setupTestServer(t)
+	defer ts.Close()
+
+	resp, _ := http.Post(ts.URL+"/api/v1/tickets", "application/json", bytes.NewBufferString(`not json`))
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", resp.StatusCode)
+	}
+}
+
+func TestTicketCreate_MissingFields(t *testing.T) {
+	ts := setupTestServer(t)
+	defer ts.Close()
+
+	cases := []struct {
+		name    string
+		payload string
+	}{
+		{"missing id", `{"title":"Task"}`},
+		{"missing title", `{"id":"t1"}`},
+		{"both empty", `{"id":"","title":""}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			resp, _ := http.Post(ts.URL+"/api/v1/tickets", "application/json", bytes.NewBufferString(tc.payload))
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusBadRequest {
+				t.Errorf("status = %d, want 400", resp.StatusCode)
+			}
+		})
+	}
+}
+
+func TestTicketComplete_NonOwner(t *testing.T) {
+	ts := setupTestServer(t)
+	defer ts.Close()
+
+	http.Post(ts.URL+"/api/v1/sprints", "application/json", bytes.NewBufferString(`{"id":"own-test","name":"Owner Test"}`))
+	http.Post(ts.URL+"/api/v1/tickets", "application/json", bytes.NewBufferString(`{"id":"T-OWN-1","title":"Owner ticket","sprint_id":"own-test"}`))
+	http.Post(ts.URL+"/api/v1/tickets/T-OWN-1/claim", "application/json", bytes.NewBufferString(`{"agent_id":"agent-owner"}`))
+
+	resp, err := http.Post(ts.URL+"/api/v1/tickets/T-OWN-1/complete", "application/json",
+		bytes.NewBufferString(`{"agent_id":"agent-intruder","evidence":"stolen work"}`))
+	if err != nil {
+		t.Fatalf("POST: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusOK {
+		t.Error("expected non-200 status for non-owner completing ticket")
+	}
+}
+
+func TestTicketClaim_InvalidJSON(t *testing.T) {
+	ts := setupTestServer(t)
+	defer ts.Close()
+
+	http.Post(ts.URL+"/api/v1/sprints", "application/json", bytes.NewBufferString(`{"id":"cj-test","name":"Claim JSON"}`))
+	http.Post(ts.URL+"/api/v1/tickets", "application/json", bytes.NewBufferString(`{"id":"T-CJ-1","title":"Claim JSON ticket","sprint_id":"cj-test"}`))
+
+	resp, _ := http.Post(ts.URL+"/api/v1/tickets/T-CJ-1/claim", "application/json", bytes.NewBufferString(`{broken`))
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", resp.StatusCode)
+	}
+}
+
+func TestAgentRegister_MissingAgentID(t *testing.T) {
+	ts := setupTestServer(t)
+	defer ts.Close()
+
+	resp, _ := http.Post(ts.URL+"/api/v1/agents", "application/json", bytes.NewBufferString(`{"surface":"test"}`))
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", resp.StatusCode)
+	}
+}
+
+func TestHandoff_MissingFields(t *testing.T) {
+	ts := setupTestServer(t)
+	defer ts.Close()
+
+	cases := []struct {
+		name    string
+		payload string
+	}{
+		{"missing ticket_id", `{"to_agent":"b","summary":"s"}`},
+		{"missing to_agent", `{"ticket_id":"t","summary":"s"}`},
+		{"missing summary", `{"ticket_id":"t","to_agent":"b"}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			resp, _ := http.Post(ts.URL+"/api/v1/handoffs", "application/json", bytes.NewBufferString(tc.payload))
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusBadRequest {
+				t.Errorf("status = %d, want 400", resp.StatusCode)
+			}
+		})
+	}
+}
+
+// --- Concurrent Claim Load Test (v7462-v7465) ---
+
+func TestTicketClaim_Concurrent10(t *testing.T) {
+	ts := setupTestServer(t)
+	defer ts.Close()
+
+	http.Post(ts.URL+"/api/v1/sprints", "application/json", bytes.NewBufferString(`{"id":"conc-test","name":"Concurrency Test"}`))
+	http.Post(ts.URL+"/api/v1/tickets", "application/json", bytes.NewBufferString(`{"id":"T-CONC-1","title":"Concurrent ticket","sprint_id":"conc-test"}`))
+
+	const goroutines = 10
+	var wg sync.WaitGroup
+	var successCount atomic.Int32
+	var conflictCount atomic.Int32
+
+	wg.Add(goroutines)
+	for i := 0; i < goroutines; i++ {
+		go func(idx int) {
+			defer wg.Done()
+			payload := fmt.Sprintf(`{"agent_id":"agent-%d"}`, idx)
+			resp, err := http.Post(ts.URL+"/api/v1/tickets/T-CONC-1/claim", "application/json", bytes.NewBufferString(payload))
+			if err != nil {
+				t.Errorf("goroutine %d: POST error: %v", idx, err)
+				return
+			}
+			defer resp.Body.Close()
+			switch resp.StatusCode {
+			case http.StatusOK:
+				successCount.Add(1)
+			case http.StatusConflict:
+				conflictCount.Add(1)
+			default:
+				t.Errorf("goroutine %d: unexpected status %d", idx, resp.StatusCode)
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	if s := successCount.Load(); s != 1 {
+		t.Errorf("success count = %d, want exactly 1", s)
+	}
+	if c := conflictCount.Load(); c != goroutines-1 {
+		t.Errorf("conflict count = %d, want %d", c, goroutines-1)
 	}
 }
