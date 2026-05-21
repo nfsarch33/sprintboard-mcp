@@ -66,6 +66,37 @@ func TestCreateAndListSprints(t *testing.T) {
 	}
 }
 
+func TestSprintReadsTolerateNullOwnerAgent(t *testing.T) {
+	s := testStore(t)
+	if err := s.CreateSprint(Sprint{
+		ID:     "v7101",
+		Name:   "Mem0 Production Gate",
+		Status: SprintPlanned,
+		Theme:  "coordination",
+	}); err != nil {
+		t.Fatalf("CreateSprint: %v", err)
+	}
+	if _, err := s.db.Exec(`UPDATE sprints SET owner_agent = NULL WHERE id = ?`, "v7101"); err != nil {
+		t.Fatalf("force NULL owner_agent: %v", err)
+	}
+
+	sp, err := s.GetSprint("v7101")
+	if err != nil {
+		t.Fatalf("GetSprint with NULL owner_agent: %v", err)
+	}
+	if sp.OwnerAgent != "" {
+		t.Fatalf("expected empty owner for NULL owner_agent, got %q", sp.OwnerAgent)
+	}
+
+	sprints, err := s.ListSprints()
+	if err != nil {
+		t.Fatalf("ListSprints with NULL owner_agent: %v", err)
+	}
+	if len(sprints) != 1 || sprints[0].OwnerAgent != "" {
+		t.Fatalf("unexpected sprint list result: %+v", sprints)
+	}
+}
+
 func TestGetSprint(t *testing.T) {
 	s := testStore(t)
 	s.CreateSprint(Sprint{ID: "v6080", Name: "Test Sprint", Status: SprintActive})
@@ -139,6 +170,32 @@ func TestListTicketsAll(t *testing.T) {
 	}
 	if len(all) != 2 {
 		t.Errorf("expected 2, got %d", len(all))
+	}
+}
+
+func TestTicketReadsTolerateNullableTextColumns(t *testing.T) {
+	s := testStore(t)
+	if err := s.CreateTicket(Ticket{ID: "t-null", Title: "Nullable ticket", Status: StatusBacklog}); err != nil {
+		t.Fatalf("CreateTicket: %v", err)
+	}
+	if _, err := s.db.Exec(`UPDATE tickets SET sprint_id = NULL, description = NULL, owner_agent = NULL, acceptance_criteria = NULL, handoff_doc_path = NULL WHERE id = ?`, "t-null"); err != nil {
+		t.Fatalf("force nullable ticket columns: %v", err)
+	}
+
+	ticket, err := s.GetTicket("t-null")
+	if err != nil {
+		t.Fatalf("GetTicket with nullable text columns: %v", err)
+	}
+	if ticket.OwnerAgent != "" || ticket.Description != "" || ticket.AcceptanceCriteria != "" || ticket.HandoffDocPath != "" {
+		t.Fatalf("expected nullable text fields to read as empty strings, got %+v", ticket)
+	}
+
+	tickets, err := s.ListTickets("")
+	if err != nil {
+		t.Fatalf("ListTickets with nullable text columns: %v", err)
+	}
+	if len(tickets) != 1 || tickets[0].OwnerAgent != "" {
+		t.Fatalf("unexpected ticket list result: %+v", tickets)
 	}
 }
 

@@ -1,6 +1,8 @@
 package sprintboard
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 )
@@ -69,5 +71,44 @@ func TestSubscribeHandoffs_FiltersBySince(t *testing.T) {
 	handoffs, _ := s.SubscribeHandoffs("claude-code", future)
 	if len(handoffs) != 0 {
 		t.Errorf("got %d handoffs with future 'since', want 0", len(handoffs))
+	}
+}
+
+func TestBridgeToMem0UsesMemoriesEndpoint(t *testing.T) {
+	var gotPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		if r.Method != http.MethodPost {
+			t.Errorf("method = %s, want POST", r.Method)
+		}
+		if r.URL.Path != "/memories" {
+			http.NotFound(w, r)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	t.Setenv("MEM0_BASE_URL", server.URL)
+	t.Setenv("MEM0_API_KEY", "")
+
+	err := bridgeToMem0(CoordinationHandoff{
+		TicketID:  "T1",
+		FromAgent: "codex",
+		ToAgent:   "cursor-parent",
+		Summary:   "foundation smoke",
+	})
+	if err != nil {
+		t.Fatalf("bridgeToMem0: %v (path %q)", err, gotPath)
+	}
+	if gotPath != "/memories" {
+		t.Fatalf("path = %q, want /memories", gotPath)
+	}
+}
+
+func TestMem0BridgeTimeoutUsesEnv(t *testing.T) {
+	t.Setenv("MEM0_TIMEOUT", "90s")
+	if got := mem0BridgeTimeout(); got != 90*time.Second {
+		t.Fatalf("timeout = %s, want 90s", got)
 	}
 }

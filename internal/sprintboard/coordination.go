@@ -90,13 +90,13 @@ func bridgeToMem0(h CoordinationHandoff) error {
 	}
 
 	body, _ := json.Marshal(payload)
-	req, _ := http.NewRequest("POST", mem0URL+"/v1/memories/", bytes.NewReader(body))
+	req, _ := http.NewRequest("POST", mem0URL+"/memories", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	if mem0Key != "" {
 		req.Header.Set("X-API-Key", mem0Key)
 	}
 
-	client := &http.Client{Timeout: 5 * time.Second}
+	client := &http.Client{Timeout: mem0BridgeTimeout()}
 	resp, err := client.Do(req)
 	if err != nil {
 		return err
@@ -107,4 +107,13 @@ func bridgeToMem0(h CoordinationHandoff) error {
 		return fmt.Errorf("mem0 returned %d", resp.StatusCode)
 	}
 	return nil
+}
+
+func mem0BridgeTimeout() time.Duration {
+	if raw := os.Getenv("MEM0_TIMEOUT"); raw != "" {
+		if parsed, err := time.ParseDuration(raw); err == nil {
+			return parsed
+		}
+	}
+	return 5 * time.Second
 }
