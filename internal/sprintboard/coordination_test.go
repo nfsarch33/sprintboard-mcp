@@ -1,6 +1,7 @@
 package sprintboard
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -76,10 +77,14 @@ func TestSubscribeHandoffs_FiltersBySince(t *testing.T) {
 
 func TestBridgeToMem0UsesMemoriesEndpoint(t *testing.T) {
 	var gotPath string
+	var gotPayload map[string]interface{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		if r.Method != http.MethodPost {
 			t.Errorf("method = %s, want POST", r.Method)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotPayload); err != nil {
+			t.Fatalf("decode payload: %v", err)
 		}
 		if r.URL.Path != "/memories" {
 			http.NotFound(w, r)
@@ -103,6 +108,12 @@ func TestBridgeToMem0UsesMemoriesEndpoint(t *testing.T) {
 	}
 	if gotPath != "/memories" {
 		t.Fatalf("path = %q, want /memories", gotPath)
+	}
+	if _, ok := gotPayload["metadata"]; ok {
+		t.Fatalf("metadata must be omitted on current Mem0 OSS write path: %+v", gotPayload)
+	}
+	if gotPayload["infer"] != false {
+		t.Fatalf("infer = %v, want false", gotPayload["infer"])
 	}
 }
 

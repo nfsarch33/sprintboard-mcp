@@ -83,10 +83,9 @@ func bridgeToMem0(h CoordinationHandoff) error {
 				"content": fmt.Sprintf("handoff from %s to %s: %s (ticket: %s)", h.FromAgent, h.ToAgent, h.Summary, h.TicketID),
 			},
 		},
-		"user_id":  "nfsarch33",
-		"app_id":   "cursor-coordination",
-		"metadata": map[string]string{"category": "handoff", "ticket_id": h.TicketID},
-		"infer":    false,
+		"user_id": "nfsarch33",
+		"app_id":  "cursor-coordination",
+		"infer":   false,
 	}
 
 	body, _ := json.Marshal(payload)
