@@ -83,6 +83,8 @@ func DefaultDBPath() string {
 	return filepath.Join(home, ".config", "helix-dev-tools", "sprintboard.db")
 }
 
+func NewStore(dbPath string) (*Store, error) { return Open(dbPath) }
+
 func Open(dbPath string) (*Store, error) {
 	dir := filepath.Dir(dbPath)
 	if err := os.MkdirAll(dir, 0700); err != nil {
