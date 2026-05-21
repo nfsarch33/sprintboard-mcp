@@ -216,11 +216,13 @@ func (s *Store) ListSprints() ([]Sprint, error) {
 	var sprints []Sprint
 	for rows.Next() {
 		var sp Sprint
-		var startAt, endAt, createdAt sql.NullString
-		err := rows.Scan(&sp.ID, &sp.Name, &sp.Status, &sp.OwnerAgent, &sp.Theme, &startAt, &endAt, &createdAt)
+		var ownerAgent, theme, startAt, endAt, createdAt sql.NullString
+		err := rows.Scan(&sp.ID, &sp.Name, &sp.Status, &ownerAgent, &theme, &startAt, &endAt, &createdAt)
 		if err != nil {
 			return nil, err
 		}
+		sp.OwnerAgent = nullString(ownerAgent)
+		sp.Theme = nullString(theme)
 		sp.StartAt = parseTime(startAt.String)
 		sp.EndAt = parseTime(endAt.String)
 		sp.CreatedAt = parseTime(createdAt.String)
@@ -231,13 +233,15 @@ func (s *Store) ListSprints() ([]Sprint, error) {
 
 func (s *Store) GetSprint(id string) (Sprint, error) {
 	var sp Sprint
-	var startAt, endAt, createdAt sql.NullString
+	var ownerAgent, theme, startAt, endAt, createdAt sql.NullString
 	err := s.db.QueryRow(
 		`SELECT id, name, status, owner_agent, theme, start_at, end_at, created_at FROM sprints WHERE id = ?`, id,
-	).Scan(&sp.ID, &sp.Name, &sp.Status, &sp.OwnerAgent, &sp.Theme, &startAt, &endAt, &createdAt)
+	).Scan(&sp.ID, &sp.Name, &sp.Status, &ownerAgent, &theme, &startAt, &endAt, &createdAt)
 	if err != nil {
 		return Sprint{}, fmt.Errorf("sprint %q not found: %w", id, err)
 	}
+	sp.OwnerAgent = nullString(ownerAgent)
+	sp.Theme = nullString(theme)
 	sp.StartAt = parseTime(startAt.String)
 	sp.EndAt = parseTime(endAt.String)
 	sp.CreatedAt = parseTime(createdAt.String)
@@ -284,12 +288,18 @@ func (s *Store) ListTickets(sprintID string) ([]Ticket, error) {
 	for rows.Next() {
 		var t Ticket
 		var createdAt, updatedAt string
-		err := rows.Scan(&t.ID, &t.SprintID, &t.Title, &t.Description, &t.Status,
-			&t.OwnerAgent, &t.Priority, &t.AcceptanceCriteria, &t.HandoffDocPath,
+		var sprintID, description, ownerAgent, acceptanceCriteria, handoffDocPath sql.NullString
+		err := rows.Scan(&t.ID, &sprintID, &t.Title, &description, &t.Status,
+			&ownerAgent, &t.Priority, &acceptanceCriteria, &handoffDocPath,
 			&createdAt, &updatedAt)
 		if err != nil {
 			return nil, err
 		}
+		t.SprintID = nullString(sprintID)
+		t.Description = nullString(description)
+		t.OwnerAgent = nullString(ownerAgent)
+		t.AcceptanceCriteria = nullString(acceptanceCriteria)
+		t.HandoffDocPath = nullString(handoffDocPath)
 		t.CreatedAt = parseTime(createdAt)
 		t.UpdatedAt = parseTime(updatedAt)
 		tickets = append(tickets, t)
@@ -496,18 +506,31 @@ func (s *Store) ListTransitions(ticketID string) ([]Transition, error) {
 func (s *Store) GetTicket(id string) (Ticket, error) {
 	var t Ticket
 	var createdAt, updatedAt string
+	var sprintID, description, ownerAgent, acceptanceCriteria, handoffDocPath sql.NullString
 	err := s.db.QueryRow(
 		`SELECT id, sprint_id, title, description, status, owner_agent, priority, acceptance_criteria, handoff_doc_path, created_at, updated_at
 		 FROM tickets WHERE id = ?`, id,
-	).Scan(&t.ID, &t.SprintID, &t.Title, &t.Description, &t.Status,
-		&t.OwnerAgent, &t.Priority, &t.AcceptanceCriteria, &t.HandoffDocPath,
+	).Scan(&t.ID, &sprintID, &t.Title, &description, &t.Status,
+		&ownerAgent, &t.Priority, &acceptanceCriteria, &handoffDocPath,
 		&createdAt, &updatedAt)
 	if err != nil {
 		return Ticket{}, fmt.Errorf("ticket %q not found: %w", id, err)
 	}
+	t.SprintID = nullString(sprintID)
+	t.Description = nullString(description)
+	t.OwnerAgent = nullString(ownerAgent)
+	t.AcceptanceCriteria = nullString(acceptanceCriteria)
+	t.HandoffDocPath = nullString(handoffDocPath)
 	t.CreatedAt = parseTime(createdAt)
 	t.UpdatedAt = parseTime(updatedAt)
 	return t, nil
+}
+
+func nullString(value sql.NullString) string {
+	if !value.Valid {
+		return ""
+	}
+	return value.String
 }
 
 func formatTime(t time.Time) string {
