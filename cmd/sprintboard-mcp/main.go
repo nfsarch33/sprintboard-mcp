@@ -118,7 +118,13 @@ func main() {
 		fmt.Fprintf(os.Stderr, "auto-register agent %q (non-fatal): %v\n", agentID, err)
 	}
 
-	server := &Server{store: store, agentID: agentID, telemetry: telemetry, embedder: embedder}
+	server := &Server{
+		store:     store,
+		agentID:   agentID,
+		telemetry: telemetry,
+		embedder:  embedder,
+		notifier:  resolveNotifier(),
+	}
 	server.serve(os.Stdin, os.Stdout)
 }
 
@@ -127,6 +133,16 @@ type Server struct {
 	agentID   string
 	telemetry *mcptelemetry.Recorder
 	embedder  *sprintboard.Embedder
+	notifier  Notifier
+}
+
+// notify dispatches a webhook event without coupling callers to nil checks.
+// A nil notifier is treated as no-op so legacy test fixtures keep compiling.
+func (s *Server) notify(event string, payload map[string]any) {
+	if s == nil || s.notifier == nil {
+		return
+	}
+	s.notifier.Notify(event, payload)
 }
 
 func (s *Server) serve(in io.Reader, out io.Writer) {
@@ -385,6 +401,9 @@ func (s *Server) sprintClose(args json.RawMessage) (string, bool) {
 	if err := s.store.UpdateSprint(p.SprintID, sprintboard.SprintClosed); err != nil {
 		return err.Error(), true
 	}
+	s.notify("sprint_closed", map[string]any{
+		"sprint_id": p.SprintID,
+	})
 	return fmt.Sprintf("Sprint %q closed", p.SprintID), false
 }
 
@@ -755,6 +774,11 @@ func (s *Server) taskClaim(args json.RawMessage) (string, bool) {
 	if err != nil {
 		return err.Error(), true
 	}
+	s.notify("ticket_claimed", map[string]any{
+		"ticket_id": p.TicketID,
+		"agent_id":  p.AgentID,
+		"result":    result,
+	})
 	data, _ := json.MarshalIndent(result, "", "  ")
 	return string(data), false
 }
@@ -774,6 +798,11 @@ func (s *Server) taskComplete(args json.RawMessage) (string, bool) {
 	if err := s.store.CompleteTicket(p.TicketID, p.AgentID, p.Evidence); err != nil {
 		return err.Error(), true
 	}
+	s.notify("ticket_completed", map[string]any{
+		"ticket_id": p.TicketID,
+		"agent_id":  p.AgentID,
+		"evidence":  p.Evidence,
+	})
 	return fmt.Sprintf("Ticket %q completed by %s", p.TicketID, p.AgentID), false
 }
 
