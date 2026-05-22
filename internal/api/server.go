@@ -44,6 +44,110 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/v1/handoffs", s.handleHandoffPublish)
 	s.mux.HandleFunc("POST /api/v1/tickets/{id}/comments", s.handleTicketCommentAdd)
 	s.mux.HandleFunc("GET /api/v1/tickets/{id}/comments", s.handleTicketCommentList)
+	// T-8800-B13: sprint templates
+	s.mux.HandleFunc("POST /api/v1/templates", s.handleTemplateCreate)
+	s.mux.HandleFunc("GET /api/v1/templates", s.handleTemplateList)
+	s.mux.HandleFunc("DELETE /api/v1/templates/{id}", s.handleTemplateDelete)
+	s.mux.HandleFunc("POST /api/v1/templates/{id}/instantiate", s.handleTemplateInstantiate)
+	// T-8800-B14: agent workload
+	s.mux.HandleFunc("GET /api/v1/agents/workload", s.handleAgentWorkload)
+	// T-8800-B15: sprint burndown
+	s.mux.HandleFunc("GET /api/v1/sprints/{id}/burndown", s.handleSprintBurndown)
+}
+
+// T-8800-B13: sprint templates ---------------------------------------------
+
+func (s *Server) handleTemplateCreate(w http.ResponseWriter, r *http.Request) {
+	var tmpl sprintboard.SprintTemplate
+	if err := json.NewDecoder(r.Body).Decode(&tmpl); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	if tmpl.ID == "" || tmpl.Name == "" {
+		writeErr(w, http.StatusBadRequest, fmt.Errorf("id and name are required"))
+		return
+	}
+	if err := s.store.CreateSprintTemplate(tmpl); err != nil {
+		writeErr(w, http.StatusConflict, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]string{"id": tmpl.ID, "status": "created"})
+}
+
+func (s *Server) handleTemplateList(w http.ResponseWriter, _ *http.Request) {
+	tmpls, err := s.store.ListSprintTemplates()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	if tmpls == nil {
+		tmpls = []sprintboard.SprintTemplate{}
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"templates": tmpls})
+}
+
+func (s *Server) handleTemplateDelete(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := s.store.DeleteSprintTemplate(id); err != nil {
+		writeErr(w, http.StatusNotFound, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"id": id, "status": "deleted"})
+}
+
+func (s *Server) handleTemplateInstantiate(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var req struct {
+		Sprint sprintboard.Sprint `json:"sprint"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	if req.Sprint.ID == "" {
+		writeErr(w, http.StatusBadRequest, fmt.Errorf("sprint.id is required"))
+		return
+	}
+	inst, err := s.store.InstantiateSprintFromTemplate(id, req.Sprint)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			writeErr(w, http.StatusNotFound, err)
+			return
+		}
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, inst)
+}
+
+// T-8800-B14: agent workload ------------------------------------------------
+
+func (s *Server) handleAgentWorkload(w http.ResponseWriter, r *http.Request) {
+	sprintID := r.URL.Query().Get("sprint_id")
+	wl, err := s.store.AgentWorkload(sprintID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	if wl == nil {
+		wl = []sprintboard.AgentWorkloadEntry{}
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"sprint_id": sprintID, "workload": wl})
+}
+
+// T-8800-B15: sprint burndown -----------------------------------------------
+
+func (s *Server) handleSprintBurndown(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	pts, err := s.store.SprintBurndown(id)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, err)
+		return
+	}
+	if pts == nil {
+		pts = []sprintboard.BurndownPoint{}
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"sprint_id": id, "points": pts})
 }
 
 func (s *Server) handleTicketCommentAdd(w http.ResponseWriter, r *http.Request) {
