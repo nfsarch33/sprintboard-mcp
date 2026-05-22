@@ -382,6 +382,121 @@ func TestHandoff_MissingFields(t *testing.T) {
 	}
 }
 
+// --- v7800-B3 mini-jira extension tests ---
+
+func TestTicketCreate_DueDateAndLabels(t *testing.T) {
+	ts := setupTestServer(t)
+	defer ts.Close()
+
+	http.Post(ts.URL+"/api/v1/sprints", "application/json", bytes.NewBufferString(`{"id":"v7800","name":"v7800"}`))
+
+	payload := `{"id":"T-EXT-1","title":"With extras","sprint_id":"v7800","priority":2,"due_date":"2026-12-01T15:04:05Z","labels":["P0","infra"]}`
+	resp, err := http.Post(ts.URL+"/api/v1/tickets", "application/json", bytes.NewBufferString(payload))
+	if err != nil {
+		t.Fatalf("POST /tickets: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("status = %d, want 201", resp.StatusCode)
+	}
+
+	got, err := http.Get(ts.URL + "/api/v1/tickets/T-EXT-1")
+	if err != nil {
+		t.Fatalf("GET /tickets: %v", err)
+	}
+	defer got.Body.Close()
+	if got.StatusCode != http.StatusOK {
+		t.Fatalf("GET status = %d, want 200", got.StatusCode)
+	}
+	var ticket map[string]interface{}
+	if err := json.NewDecoder(got.Body).Decode(&ticket); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if ticket["due_date"] == nil {
+		t.Errorf("due_date missing in response: %v", ticket)
+	}
+	labels, _ := ticket["labels"].([]interface{})
+	if len(labels) != 2 || labels[0] != "P0" {
+		t.Errorf("labels = %v, want [P0 infra]", labels)
+	}
+}
+
+func TestTicketCreate_RejectsBadDueDate(t *testing.T) {
+	ts := setupTestServer(t)
+	defer ts.Close()
+
+	payload := `{"id":"T-BAD","title":"bad","due_date":"yesterday"}`
+	resp, _ := http.Post(ts.URL+"/api/v1/tickets", "application/json", bytes.NewBufferString(payload))
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400 for bad due_date", resp.StatusCode)
+	}
+}
+
+func TestSprintTickets_ListEndpoint(t *testing.T) {
+	ts := setupTestServer(t)
+	defer ts.Close()
+
+	http.Post(ts.URL+"/api/v1/sprints", "application/json", bytes.NewBufferString(`{"id":"v7800-list","name":"List"}`))
+	http.Post(ts.URL+"/api/v1/tickets", "application/json", bytes.NewBufferString(`{"id":"L1","title":"a","sprint_id":"v7800-list","priority":3}`))
+	http.Post(ts.URL+"/api/v1/tickets", "application/json", bytes.NewBufferString(`{"id":"L2","title":"b","sprint_id":"v7800-list","priority":1}`))
+
+	resp, err := http.Get(ts.URL + "/api/v1/sprints/v7800-list/tickets")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	var body struct {
+		SprintID string                   `json:"sprint_id"`
+		Tickets  []map[string]interface{} `json:"tickets"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.SprintID != "v7800-list" {
+		t.Errorf("sprint_id = %q", body.SprintID)
+	}
+	if len(body.Tickets) != 2 {
+		t.Errorf("tickets count = %d, want 2", len(body.Tickets))
+	}
+	if body.Tickets[0]["id"] != "L1" {
+		t.Errorf("expected priority-DESC ordering, got %v", body.Tickets)
+	}
+}
+
+func TestSprintSLAs_Endpoint(t *testing.T) {
+	ts := setupTestServer(t)
+	defer ts.Close()
+
+	http.Post(ts.URL+"/api/v1/sprints", "application/json", bytes.NewBufferString(`{"id":"v7800-sla","name":"SLA"}`))
+	http.Post(ts.URL+"/api/v1/tickets", "application/json", bytes.NewBufferString(`{"id":"S1","title":"sla","sprint_id":"v7800-sla"}`))
+	http.Post(ts.URL+"/api/v1/tickets/S1/claim", "application/json", bytes.NewBufferString(`{"agent_id":"a"}`))
+	http.Post(ts.URL+"/api/v1/tickets/S1/complete", "application/json", bytes.NewBufferString(`{"agent_id":"a","evidence":"done"}`))
+
+	resp, err := http.Get(ts.URL + "/api/v1/sprints/v7800-sla/slas")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	var body struct {
+		SprintID string                   `json:"sprint_id"`
+		SLAs     []map[string]interface{} `json:"slas"`
+	}
+	json.NewDecoder(resp.Body).Decode(&body)
+	if len(body.SLAs) != 1 {
+		t.Fatalf("got %d SLAs, want 1", len(body.SLAs))
+	}
+	if body.SLAs[0]["ticket_id"] != "S1" {
+		t.Errorf("SLA ticket_id = %v", body.SLAs[0]["ticket_id"])
+	}
+}
+
 // --- Concurrent Claim Load Test (v7462-v7465) ---
 
 func TestTicketClaim_Concurrent10(t *testing.T) {

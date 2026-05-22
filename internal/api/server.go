@@ -34,6 +34,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/v1/sprints/{id}", s.handleSprintStatus)
 	s.mux.HandleFunc("POST /api/v1/sprints/{id}/close", s.handleSprintClose)
 	s.mux.HandleFunc("POST /api/v1/tickets", s.handleTicketCreate)
+	s.mux.HandleFunc("GET /api/v1/tickets/{id}", s.handleTicketGet)
+	s.mux.HandleFunc("GET /api/v1/sprints/{id}/tickets", s.handleSprintTicketList)
+	s.mux.HandleFunc("GET /api/v1/sprints/{id}/slas", s.handleSprintSLAs)
 	s.mux.HandleFunc("POST /api/v1/tickets/{id}/claim", s.handleTicketClaim)
 	s.mux.HandleFunc("POST /api/v1/tickets/{id}/complete", s.handleTicketComplete)
 	s.mux.HandleFunc("GET /api/v1/agents", s.handleAgentList)
@@ -109,11 +112,13 @@ func (s *Server) handleSprintClose(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleTicketCreate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		ID          string `json:"id"`
-		Title       string `json:"title"`
-		SprintID    string `json:"sprint_id"`
-		Description string `json:"description,omitempty"`
-		Priority    int    `json:"priority,omitempty"`
+		ID          string   `json:"id"`
+		Title       string   `json:"title"`
+		SprintID    string   `json:"sprint_id"`
+		Description string   `json:"description,omitempty"`
+		Priority    int      `json:"priority,omitempty"`
+		DueDate     string   `json:"due_date,omitempty"`
+		Labels      []string `json:"labels,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
@@ -124,16 +129,62 @@ func (s *Server) handleTicketCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	t := sprintboard.Ticket{
-		ID:       req.ID,
-		Title:    req.Title,
-		SprintID: req.SprintID,
-		Priority: req.Priority,
+		ID:          req.ID,
+		Title:       req.Title,
+		SprintID:    req.SprintID,
+		Description: req.Description,
+		Priority:    req.Priority,
+		Labels:      req.Labels,
+	}
+	if req.DueDate != "" {
+		due, err := time.Parse(time.RFC3339, req.DueDate)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, fmt.Errorf("due_date must be RFC3339: %w", err))
+			return
+		}
+		t.DueDate = due
 	}
 	if err := s.store.CreateTicket(t); err != nil {
 		writeErr(w, http.StatusConflict, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]string{"id": req.ID, "status": "created"})
+}
+
+func (s *Server) handleTicketGet(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	t, err := s.store.GetTicket(id)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, t)
+}
+
+func (s *Server) handleSprintTicketList(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	tickets, err := s.store.ListTickets(id)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	if tickets == nil {
+		tickets = []sprintboard.Ticket{}
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"sprint_id": id, "tickets": tickets})
+}
+
+func (s *Server) handleSprintSLAs(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	slas, err := s.store.SprintSLAs(id)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	if slas == nil {
+		slas = []sprintboard.SLA{}
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"sprint_id": id, "slas": slas})
 }
 
 func (s *Server) handleTicketClaim(w http.ResponseWriter, r *http.Request) {

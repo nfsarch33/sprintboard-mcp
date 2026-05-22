@@ -56,10 +56,10 @@ func (s *Store) ClaimTicket(ticketID, agentID string) (ClaimResult, error) {
 	}
 	defer tx.Rollback()
 
-	var currentClaim sql.NullString
+	var currentClaim, createdAtRaw sql.NullString
 	err = tx.QueryRow(
-		`SELECT claimed_by FROM tickets WHERE id = ?`, ticketID,
-	).Scan(&currentClaim)
+		`SELECT claimed_by, created_at FROM tickets WHERE id = ?`, ticketID,
+	).Scan(&currentClaim, &createdAtRaw)
 	if err != nil {
 		return ClaimResult{}, fmt.Errorf("ticket %q not found: %w", ticketID, err)
 	}
@@ -73,11 +73,14 @@ func (s *Store) ClaimTicket(ticketID, agentID string) (ClaimResult, error) {
 		}, nil
 	}
 
-	now := formatTime(time.Now())
+	claimedAt := time.Now()
+	now := formatTime(claimedAt)
+	timeToClaimMS := durationMS(parseTime(nullString(createdAtRaw)), claimedAt)
 	_, err = tx.Exec(
-		`UPDATE tickets SET claimed_by = ?, claimed_at = ?, status = ?, updated_at = ?
+		`UPDATE tickets SET claimed_by = ?, claimed_at = ?, status = ?, updated_at = ?,
+		    time_to_claim_ms = ?
 		 WHERE id = ?`,
-		agentID, now, StatusInProgress, now, ticketID,
+		agentID, now, StatusInProgress, now, timeToClaimMS, ticketID,
 	)
 	if err != nil {
 		return ClaimResult{}, err
@@ -104,11 +107,26 @@ func (s *Store) ClaimTicket(ticketID, agentID string) (ClaimResult, error) {
 }
 
 func (s *Store) CompleteTicket(ticketID, agentID, evidence string) error {
-	now := formatTime(time.Now())
+	completedAt := time.Now()
+	now := formatTime(completedAt)
+
+	var claimedAtRaw sql.NullString
+	if err := s.db.QueryRow(
+		`SELECT claimed_at FROM tickets WHERE id = ? AND claimed_by = ?`,
+		ticketID, agentID,
+	).Scan(&claimedAtRaw); err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("ticket %q not claimed by %q", ticketID, agentID)
+		}
+		return err
+	}
+	timeToCompleteMS := durationMS(parseTime(nullString(claimedAtRaw)), completedAt)
+
 	res, err := s.db.Exec(
-		`UPDATE tickets SET status = ?, evidence = ?, updated_at = ?
+		`UPDATE tickets SET status = ?, evidence = ?, updated_at = ?, completed_at = ?,
+		    time_to_complete_ms = ?
 		 WHERE id = ? AND claimed_by = ?`,
-		StatusDone, evidence, now, ticketID, agentID,
+		StatusDone, evidence, now, now, timeToCompleteMS, ticketID, agentID,
 	)
 	if err != nil {
 		return err
@@ -124,6 +142,20 @@ func (s *Store) CompleteTicket(ticketID, agentID, evidence string) error {
 		ticketID, StatusInProgress, StatusDone, agentID, evidence, now,
 	)
 	return err
+}
+
+// durationMS returns rounded milliseconds between start and end. Returns 0
+// when either timestamp is zero so legacy rows without created_at/claimed_at
+// don't poison the SLA columns with negative or absurdly large values.
+func durationMS(start, end time.Time) int64 {
+	if start.IsZero() || end.IsZero() {
+		return 0
+	}
+	d := end.Sub(start)
+	if d < 0 {
+		return 0
+	}
+	return d.Milliseconds()
 }
 
 func (s *Store) ReleaseStaleClaims(expiry time.Duration) (int64, error) {

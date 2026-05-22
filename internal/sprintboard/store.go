@@ -51,6 +51,11 @@ type Ticket struct {
 	Priority           int          `json:"priority"`
 	AcceptanceCriteria string       `json:"acceptance_criteria,omitempty"`
 	HandoffDocPath     string       `json:"handoff_doc_path,omitempty"`
+	DueDate            time.Time    `json:"-"`
+	Labels             []string     `json:"labels,omitempty"`
+	ClaimedBy          string       `json:"claimed_by,omitempty"`
+	ClaimedAt          time.Time    `json:"-"`
+	CompletedAt        time.Time    `json:"-"`
 	CreatedAt          time.Time    `json:"created_at"`
 	UpdatedAt          time.Time    `json:"updated_at"`
 }
@@ -188,7 +193,29 @@ func (s *Store) migrate() error {
 	if err := s.migrateClaiming(); err != nil {
 		return err
 	}
-	return s.migrateDAG()
+	if err := s.migrateDAG(); err != nil {
+		return err
+	}
+	return s.migrateExtensions()
+}
+
+// migrateExtensions adds v7800-B3 mini-jira fields (due_date, labels JSON,
+// completed_at) and v8000-B18 SLA millisecond columns. claimed_at already
+// exists from migrateClaiming. ALTER calls are idempotent on re-open.
+func (s *Store) migrateExtensions() error {
+	stmts := []string{
+		`ALTER TABLE tickets ADD COLUMN due_date TEXT`,
+		`ALTER TABLE tickets ADD COLUMN labels TEXT`,
+		`ALTER TABLE tickets ADD COLUMN completed_at TEXT`,
+		`ALTER TABLE tickets ADD COLUMN time_to_claim_ms INTEGER`,
+		`ALTER TABLE tickets ADD COLUMN time_to_complete_ms INTEGER`,
+	}
+	for _, stmt := range stmts {
+		if _, err := s.db.Exec(stmt); err != nil && !isAlterColumnExists(err) {
+			return fmt.Errorf("migrate extensions: %w", err)
+		}
+	}
+	return nil
 }
 
 func (s *Store) CreateSprint(sp Sprint) error {
@@ -262,17 +289,18 @@ func (s *Store) CreateTicket(t Ticket) error {
 	}
 
 	_, err := s.db.Exec(
-		`INSERT INTO tickets (id, sprint_id, title, description, status, owner_agent, priority, acceptance_criteria, handoff_doc_path, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO tickets (id, sprint_id, title, description, status, owner_agent, priority, acceptance_criteria, handoff_doc_path, due_date, labels, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		t.ID, t.SprintID, t.Title, t.Description, t.Status, t.OwnerAgent,
 		t.Priority, t.AcceptanceCriteria, t.HandoffDocPath,
+		formatTime(t.DueDate), encodeLabels(t.Labels),
 		formatTime(t.CreatedAt), formatTime(t.UpdatedAt),
 	)
 	return err
 }
 
 func (s *Store) ListTickets(sprintID string) ([]Ticket, error) {
-	query := `SELECT id, sprint_id, title, description, status, owner_agent, priority, acceptance_criteria, handoff_doc_path, created_at, updated_at FROM tickets`
+	query := `SELECT id, sprint_id, title, description, status, owner_agent, priority, acceptance_criteria, handoff_doc_path, due_date, labels, claimed_by, claimed_at, completed_at, created_at, updated_at FROM tickets`
 	var args []interface{}
 	if sprintID != "" {
 		query += ` WHERE sprint_id = ?`
@@ -291,8 +319,10 @@ func (s *Store) ListTickets(sprintID string) ([]Ticket, error) {
 		var t Ticket
 		var createdAt, updatedAt string
 		var sprintID, description, ownerAgent, acceptanceCriteria, handoffDocPath sql.NullString
+		var dueDate, labelsRaw, claimedBy, claimedAt, completedAt sql.NullString
 		err := rows.Scan(&t.ID, &sprintID, &t.Title, &description, &t.Status,
 			&ownerAgent, &t.Priority, &acceptanceCriteria, &handoffDocPath,
+			&dueDate, &labelsRaw, &claimedBy, &claimedAt, &completedAt,
 			&createdAt, &updatedAt)
 		if err != nil {
 			return nil, err
@@ -302,6 +332,11 @@ func (s *Store) ListTickets(sprintID string) ([]Ticket, error) {
 		t.OwnerAgent = nullString(ownerAgent)
 		t.AcceptanceCriteria = nullString(acceptanceCriteria)
 		t.HandoffDocPath = nullString(handoffDocPath)
+		t.DueDate = parseTime(nullString(dueDate))
+		t.Labels = decodeLabels(nullString(labelsRaw))
+		t.ClaimedBy = nullString(claimedBy)
+		t.ClaimedAt = parseTime(nullString(claimedAt))
+		t.CompletedAt = parseTime(nullString(completedAt))
 		t.CreatedAt = parseTime(createdAt)
 		t.UpdatedAt = parseTime(updatedAt)
 		tickets = append(tickets, t)
@@ -317,8 +352,13 @@ func (s *Store) UpdateTicket(id string, status TicketStatus, agentID string, not
 	}
 
 	now := time.Now()
-	_, err = s.db.Exec(`UPDATE tickets SET status = ?, updated_at = ? WHERE id = ?`,
-		status, formatTime(now), id)
+	if status == StatusDone {
+		_, err = s.db.Exec(`UPDATE tickets SET status = ?, updated_at = ?, completed_at = ? WHERE id = ?`,
+			status, formatTime(now), formatTime(now), id)
+	} else {
+		_, err = s.db.Exec(`UPDATE tickets SET status = ?, updated_at = ? WHERE id = ?`,
+			status, formatTime(now), id)
+	}
 	if err != nil {
 		return err
 	}
@@ -509,11 +549,13 @@ func (s *Store) GetTicket(id string) (Ticket, error) {
 	var t Ticket
 	var createdAt, updatedAt string
 	var sprintID, description, ownerAgent, acceptanceCriteria, handoffDocPath sql.NullString
+	var dueDate, labelsRaw, claimedBy, claimedAt, completedAt sql.NullString
 	err := s.db.QueryRow(
-		`SELECT id, sprint_id, title, description, status, owner_agent, priority, acceptance_criteria, handoff_doc_path, created_at, updated_at
+		`SELECT id, sprint_id, title, description, status, owner_agent, priority, acceptance_criteria, handoff_doc_path, due_date, labels, claimed_by, claimed_at, completed_at, created_at, updated_at
 		 FROM tickets WHERE id = ?`, id,
 	).Scan(&t.ID, &sprintID, &t.Title, &description, &t.Status,
 		&ownerAgent, &t.Priority, &acceptanceCriteria, &handoffDocPath,
+		&dueDate, &labelsRaw, &claimedBy, &claimedAt, &completedAt,
 		&createdAt, &updatedAt)
 	if err != nil {
 		return Ticket{}, fmt.Errorf("ticket %q not found: %w", id, err)
@@ -523,6 +565,11 @@ func (s *Store) GetTicket(id string) (Ticket, error) {
 	t.OwnerAgent = nullString(ownerAgent)
 	t.AcceptanceCriteria = nullString(acceptanceCriteria)
 	t.HandoffDocPath = nullString(handoffDocPath)
+	t.DueDate = parseTime(nullString(dueDate))
+	t.Labels = decodeLabels(nullString(labelsRaw))
+	t.ClaimedBy = nullString(claimedBy)
+	t.ClaimedAt = parseTime(nullString(claimedAt))
+	t.CompletedAt = parseTime(nullString(completedAt))
 	t.CreatedAt = parseTime(createdAt)
 	t.UpdatedAt = parseTime(updatedAt)
 	return t, nil

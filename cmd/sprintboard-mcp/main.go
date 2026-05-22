@@ -390,13 +390,15 @@ func (s *Server) sprintClose(args json.RawMessage) (string, bool) {
 
 func (s *Server) ticketCreate(args json.RawMessage) (string, bool) {
 	var p struct {
-		ID                 string `json:"id"`
-		TicketID           string `json:"ticket_id"`
-		SprintID           string `json:"sprint_id"`
-		Title              string `json:"title"`
-		Description        string `json:"description"`
-		Priority           int    `json:"priority"`
-		AcceptanceCriteria string `json:"acceptance_criteria"`
+		ID                 string   `json:"id"`
+		TicketID           string   `json:"ticket_id"`
+		SprintID           string   `json:"sprint_id"`
+		Title              string   `json:"title"`
+		Description        string   `json:"description"`
+		Priority           int      `json:"priority"`
+		AcceptanceCriteria string   `json:"acceptance_criteria"`
+		DueDate            string   `json:"due_date"`
+		Labels             []string `json:"labels"`
 	}
 	if err := json.Unmarshal(args, &p); err != nil {
 		return err.Error(), true
@@ -407,11 +409,20 @@ func (s *Server) ticketCreate(args json.RawMessage) (string, bool) {
 	if p.ID == "" {
 		return "id or ticket_id is required", true
 	}
-	err := s.store.CreateTicket(sprintboard.Ticket{
+	ticket := sprintboard.Ticket{
 		ID: p.ID, SprintID: p.SprintID, Title: p.Title,
 		Description: p.Description, Priority: p.Priority,
 		AcceptanceCriteria: p.AcceptanceCriteria, OwnerAgent: s.agentID,
-	})
+		Labels: p.Labels,
+	}
+	if p.DueDate != "" {
+		due, err := time.Parse(time.RFC3339, p.DueDate)
+		if err != nil {
+			return fmt.Sprintf("due_date must be RFC3339: %v", err), true
+		}
+		ticket.DueDate = due
+	}
+	err := s.store.CreateTicket(ticket)
 	if err != nil {
 		return err.Error(), true
 	}
