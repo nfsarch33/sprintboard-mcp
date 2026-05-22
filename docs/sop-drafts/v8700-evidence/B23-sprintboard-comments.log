@@ -1,0 +1,25 @@
+?   	github.com/nfsarch33/sprintboard-mcp/cmd/sprintboard-api	[no test files]
+ok  	github.com/nfsarch33/sprintboard-mcp/cmd/sprintboard-mcp	2.582s [no tests to run]
+?   	github.com/nfsarch33/sprintboard-mcp/cmd/sprintboard-worker	[no test files]
+ok  	github.com/nfsarch33/sprintboard-mcp/internal/api	3.582s
+ok  	github.com/nfsarch33/sprintboard-mcp/internal/mcptelemetry	2.212s [no tests to run]
+ok  	github.com/nfsarch33/sprintboard-mcp/internal/sprintboard	3.862s
+ok  	github.com/nfsarch33/sprintboard-mcp/internal/temporal	3.488s [no tests to run]
+?   	github.com/nfsarch33/sprintboard-mcp/cmd/sprintboard-api	[no test files]
+--- FAIL: TestE2EToolsList (2.34s)
+    mcp_test.go:166: expected 28 tools, got 30
+FAIL
+FAIL	github.com/nfsarch33/sprintboard-mcp/cmd/sprintboard-mcp	23.992s
+?   	github.com/nfsarch33/sprintboard-mcp/cmd/sprintboard-worker	[no test files]
+ok  	github.com/nfsarch33/sprintboard-mcp/internal/api	9.780s
+ok  	github.com/nfsarch33/sprintboard-mcp/internal/mcptelemetry	1.440s
+ok  	github.com/nfsarch33/sprintboard-mcp/internal/sprintboard	26.732s
+ok  	github.com/nfsarch33/sprintboard-mcp/internal/temporal	5.192s
+FAIL
+?   	github.com/nfsarch33/sprintboard-mcp/cmd/sprintboard-api	[no test files]
+ok  	github.com/nfsarch33/sprintboard-mcp/cmd/sprintboard-mcp	31.321s
+?   	github.com/nfsarch33/sprintboard-mcp/cmd/sprintboard-worker	[no test files]
+ok  	github.com/nfsarch33/sprintboard-mcp/internal/api	8.787s
+ok  	github.com/nfsarch33/sprintboard-mcp/internal/mcptelemetry	3.195s
+ok  	github.com/nfsarch33/sprintboard-mcp/internal/sprintboard	29.798s
+ok  	github.com/nfsarch33/sprintboard-mcp/internal/temporal	4.453s

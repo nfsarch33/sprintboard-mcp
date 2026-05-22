@@ -162,8 +162,9 @@ func TestE2EToolsList(t *testing.T) {
 		t.Fatal("expected tools array")
 	}
 	// 23 base tools + 5 DAG tools (ticket_depend_add/remove, ticket_blocked_by, ticket_ready_list, sprint_topo_sort)
-	if len(tools) != 28 {
-		t.Errorf("expected 28 tools, got %d", len(tools))
+	// + 2 v8700-B23 ticket_comment tools (ticket_comment_add, ticket_comment_list)
+	if len(tools) != 30 {
+		t.Errorf("expected 30 tools, got %d", len(tools))
 	}
 }
 

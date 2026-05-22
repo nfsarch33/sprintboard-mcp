@@ -42,6 +42,43 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/v1/agents", s.handleAgentList)
 	s.mux.HandleFunc("POST /api/v1/agents", s.handleAgentRegister)
 	s.mux.HandleFunc("POST /api/v1/handoffs", s.handleHandoffPublish)
+	s.mux.HandleFunc("POST /api/v1/tickets/{id}/comments", s.handleTicketCommentAdd)
+	s.mux.HandleFunc("GET /api/v1/tickets/{id}/comments", s.handleTicketCommentList)
+}
+
+func (s *Server) handleTicketCommentAdd(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var req struct {
+		Author string `json:"author"`
+		Body   string `json:"body"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	if req.Author == "" || req.Body == "" {
+		writeErr(w, http.StatusBadRequest, fmt.Errorf("author and body are required"))
+		return
+	}
+	c, err := s.store.AddTicketComment(id, req.Author, req.Body)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, c)
+}
+
+func (s *Server) handleTicketCommentList(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	comments, err := s.store.ListTicketComments(id)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	if comments == nil {
+		comments = []sprintboard.TicketComment{}
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"ticket_id": id, "comments": comments})
 }
 
 func (s *Server) withMiddleware(h http.Handler) http.Handler {

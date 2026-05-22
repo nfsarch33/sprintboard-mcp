@@ -497,6 +497,98 @@ func TestSprintSLAs_Endpoint(t *testing.T) {
 	}
 }
 
+// --- v8700-B23 ticket comments REST round-trip ---
+
+func TestV8700_B23_TicketComments_REST(t *testing.T) {
+	ts := setupTestServer(t)
+	defer ts.Close()
+
+	http.Post(ts.URL+"/api/v1/sprints", "application/json", bytes.NewBufferString(`{"id":"v8700-comments","name":"Comments"}`))
+	http.Post(ts.URL+"/api/v1/tickets", "application/json", bytes.NewBufferString(`{"id":"T-CMT-1","title":"comment ticket","sprint_id":"v8700-comments"}`))
+
+	emptyResp, err := http.Get(ts.URL + "/api/v1/tickets/T-CMT-1/comments")
+	if err != nil {
+		t.Fatalf("GET empty: %v", err)
+	}
+	if emptyResp.StatusCode != http.StatusOK {
+		t.Fatalf("empty list status = %d, want 200", emptyResp.StatusCode)
+	}
+	var emptyBody struct {
+		TicketID string                   `json:"ticket_id"`
+		Comments []map[string]interface{} `json:"comments"`
+	}
+	if err := json.NewDecoder(emptyResp.Body).Decode(&emptyBody); err != nil {
+		t.Fatalf("decode empty: %v", err)
+	}
+	emptyResp.Body.Close()
+	if emptyBody.TicketID != "T-CMT-1" {
+		t.Errorf("ticket_id = %q", emptyBody.TicketID)
+	}
+	if len(emptyBody.Comments) != 0 {
+		t.Errorf("empty comments len = %d, want 0", len(emptyBody.Comments))
+	}
+
+	addPayload := `{"author":"claude-code","body":"first audit-log entry"}`
+	addResp, err := http.Post(ts.URL+"/api/v1/tickets/T-CMT-1/comments", "application/json", bytes.NewBufferString(addPayload))
+	if err != nil {
+		t.Fatalf("POST comment: %v", err)
+	}
+	if addResp.StatusCode != http.StatusCreated {
+		t.Fatalf("add status = %d, want 201", addResp.StatusCode)
+	}
+	var added map[string]interface{}
+	json.NewDecoder(addResp.Body).Decode(&added)
+	addResp.Body.Close()
+	if added["author"] != "claude-code" || added["body"] != "first audit-log entry" {
+		t.Errorf("add response = %v", added)
+	}
+
+	listResp, err := http.Get(ts.URL + "/api/v1/tickets/T-CMT-1/comments")
+	if err != nil {
+		t.Fatalf("GET list: %v", err)
+	}
+	defer listResp.Body.Close()
+	if listResp.StatusCode != http.StatusOK {
+		t.Fatalf("list status = %d, want 200", listResp.StatusCode)
+	}
+	var listBody struct {
+		TicketID string                   `json:"ticket_id"`
+		Comments []map[string]interface{} `json:"comments"`
+	}
+	if err := json.NewDecoder(listResp.Body).Decode(&listBody); err != nil {
+		t.Fatalf("decode list: %v", err)
+	}
+	if len(listBody.Comments) != 1 {
+		t.Fatalf("comments len = %d, want 1", len(listBody.Comments))
+	}
+	if listBody.Comments[0]["body"] != "first audit-log entry" {
+		t.Errorf("comment body = %v", listBody.Comments[0]["body"])
+	}
+}
+
+func TestV8700_B23_TicketComments_REST_Validation(t *testing.T) {
+	ts := setupTestServer(t)
+	defer ts.Close()
+
+	cases := []struct {
+		name    string
+		payload string
+	}{
+		{"missing author", `{"body":"hi"}`},
+		{"missing body", `{"author":"a"}`},
+		{"both empty", `{"author":"","body":""}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			resp, _ := http.Post(ts.URL+"/api/v1/tickets/T-XYZ/comments", "application/json", bytes.NewBufferString(tc.payload))
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusBadRequest {
+				t.Errorf("status = %d, want 400", resp.StatusCode)
+			}
+		})
+	}
+}
+
 // --- Concurrent Claim Load Test (v7462-v7465) ---
 
 func TestTicketClaim_Concurrent10(t *testing.T) {

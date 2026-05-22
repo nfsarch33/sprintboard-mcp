@@ -225,6 +225,8 @@ func (s *Server) handleToolsList(req JSONRPCRequest) JSONRPCResponse {
 		{Name: "ticket_blocked_by", Description: "List tickets that are blocking the given ticket (non-done blockers only)", InputSchema: idOnlySchema("ticket_id")},
 		{Name: "ticket_ready_list", Description: "List tickets that have no unresolved blockers (DAG-aware ready queue)", InputSchema: idOnlySchema("sprint_id")},
 		{Name: "sprint_topo_sort", Description: "Return tickets in topological order (dependency-first) for a sprint", InputSchema: idOnlySchema("sprint_id")},
+		{Name: "ticket_comment_add", Description: "Append a comment to a ticket (audit log of agent activity that doesn't deserve a status transition)", InputSchema: ticketCommentAddSchema()},
+		{Name: "ticket_comment_list", Description: "List all comments on a ticket in chronological order", InputSchema: idOnlySchema("ticket_id")},
 	}
 	return JSONRPCResponse{JSONRPC: "2.0", ID: req.ID, Result: map[string]interface{}{"tools": tools}}
 }
@@ -312,6 +314,10 @@ func (s *Server) dispatchInner(tool string, args json.RawMessage) (string, bool)
 		return s.ticketReadyList(args)
 	case "sprint_topo_sort":
 		return s.sprintTopoSort(args)
+	case "ticket_comment_add":
+		return s.ticketCommentAdd(args)
+	case "ticket_comment_list":
+		return s.ticketCommentList(args)
 	default:
 		return fmt.Sprintf("unknown tool: %s", tool), true
 	}
@@ -1367,4 +1373,54 @@ Use sprintboard task_claim before starting work.
 `, sprint.Name, agentID, p.SprintID, sprint.Name, now, completed, inProgress, blocked, p.SprintID)
 
 	return handoff, false
+}
+
+func ticketCommentAddSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"ticket_id": map[string]string{"type": "string", "description": "Ticket to attach the comment to"},
+			"author":    map[string]string{"type": "string", "description": "Agent or operator id that authored the comment"},
+			"body":      map[string]string{"type": "string", "description": "Free-form comment text"},
+		},
+		"required": []string{"ticket_id", "author", "body"},
+	}
+}
+
+func (s *Server) ticketCommentAdd(args json.RawMessage) (string, bool) {
+	var p struct {
+		TicketID string `json:"ticket_id"`
+		Author   string `json:"author"`
+		Body     string `json:"body"`
+	}
+	if err := json.Unmarshal(args, &p); err != nil {
+		return err.Error(), true
+	}
+	if p.Author == "" {
+		p.Author = s.agentID
+	}
+	c, err := s.store.AddTicketComment(p.TicketID, p.Author, p.Body)
+	if err != nil {
+		return err.Error(), true
+	}
+	data, _ := json.MarshalIndent(c, "", "  ")
+	return string(data), false
+}
+
+func (s *Server) ticketCommentList(args json.RawMessage) (string, bool) {
+	var p struct {
+		TicketID string `json:"ticket_id"`
+	}
+	if err := json.Unmarshal(args, &p); err != nil {
+		return err.Error(), true
+	}
+	comments, err := s.store.ListTicketComments(p.TicketID)
+	if err != nil {
+		return err.Error(), true
+	}
+	if comments == nil {
+		comments = []sprintboard.TicketComment{}
+	}
+	data, _ := json.MarshalIndent(comments, "", "  ")
+	return string(data), false
 }
