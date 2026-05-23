@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: sprintboard-api
+  namespace: cicd
+spec:
+  selector:
+    app: sprintboard-api
+  ports:
+    - port: 9400
+      targetPort: 9400
+      nodePort: 30940
+  type: NodePort

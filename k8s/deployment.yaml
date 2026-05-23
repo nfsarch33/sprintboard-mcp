@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sprintboard-api
+  namespace: cicd
+  labels:
+    app: sprintboard-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sprintboard-api
+  template:
+    metadata:
+      labels:
+        app: sprintboard-api
+    spec:
+      containers:
+        - name: sprintboard-api
+          image: sprintboard-api:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 9400
+          args: ['-addr', ':9400', '-db', '/data/sprintboard.db']
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 9400
+            initialDelaySeconds: 5
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 9400
+            initialDelaySeconds: 3
+            periodSeconds: 10
+      volumes:
+        - name: data
+          hostPath:
+            path: /tmp/sprintboard-data
+            type: DirectoryOrCreate
