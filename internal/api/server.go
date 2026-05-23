@@ -53,6 +53,12 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/v1/agents/workload", s.handleAgentWorkload)
 	// T-8800-B15: sprint burndown
 	s.mux.HandleFunc("GET /api/v1/sprints/{id}/burndown", s.handleSprintBurndown)
+	// v8900-B16: ticket search
+	s.mux.HandleFunc("GET /api/v1/tickets/search", s.handleTicketSearch)
+	// v8900-B17: sprint history
+	s.mux.HandleFunc("GET /api/v1/sprints", s.handleSprintHistory)
+	// v8900-B18: sprint metrics rollup
+	s.mux.HandleFunc("GET /api/v1/sprints/{id}/metrics", s.handleSprintMetrics)
 }
 
 // T-8800-B13: sprint templates ---------------------------------------------
@@ -208,9 +214,10 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) handleSprintCreate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		ID    string `json:"id"`
-		Name  string `json:"name"`
-		Theme string `json:"theme,omitempty"`
+		ID     string `json:"id"`
+		Name   string `json:"name"`
+		Theme  string `json:"theme,omitempty"`
+		Status string `json:"status,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
@@ -224,6 +231,9 @@ func (s *Server) handleSprintCreate(w http.ResponseWriter, r *http.Request) {
 		ID:    req.ID,
 		Name:  req.Name,
 		Theme: req.Theme,
+	}
+	if req.Status != "" {
+		sp.Status = sprintboard.SprintStatus(req.Status)
 	}
 	if err := s.store.CreateSprint(sp); err != nil {
 		writeErr(w, http.StatusConflict, err)
@@ -260,6 +270,8 @@ func (s *Server) handleTicketCreate(w http.ResponseWriter, r *http.Request) {
 		Priority    int      `json:"priority,omitempty"`
 		DueDate     string   `json:"due_date,omitempty"`
 		Labels      []string `json:"labels,omitempty"`
+		Status      string   `json:"status,omitempty"`
+		OwnerAgent  string   `json:"owner_agent,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
@@ -276,6 +288,10 @@ func (s *Server) handleTicketCreate(w http.ResponseWriter, r *http.Request) {
 		Description: req.Description,
 		Priority:    req.Priority,
 		Labels:      req.Labels,
+		OwnerAgent:  req.OwnerAgent,
+	}
+	if req.Status != "" {
+		t.Status = sprintboard.TicketStatus(req.Status)
 	}
 	if req.DueDate != "" {
 		due, err := time.Parse(time.RFC3339, req.DueDate)
