@@ -1,12 +1,11 @@
 package mcptelemetry
 
 import (
-	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
-	"sync"
 	"time"
+
+	"github.com/nfsarch33/sprintboard-mcp/internal/ndjson"
 )
 
 type ToolEvent struct {
@@ -25,10 +24,8 @@ type Config struct {
 }
 
 type Recorder struct {
-	mu      sync.Mutex
-	config  Config
-	file    *os.File
-	encoder *json.Encoder
+	config Config
+	w      *ndjson.Writer
 }
 
 func DefaultConfig() Config {
@@ -44,29 +41,17 @@ func New(cfg Config) (*Recorder, error) {
 	if !cfg.Enabled {
 		return &Recorder{config: cfg}, nil
 	}
-
-	dir := filepath.Dir(cfg.LogPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return nil, fmt.Errorf("create log dir: %w", err)
-	}
-
-	f, err := os.OpenFile(cfg.LogPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	w, err := ndjson.Open(cfg.LogPath)
 	if err != nil {
-		return nil, fmt.Errorf("open log file: %w", err)
+		return nil, err
 	}
-
-	return &Recorder{
-		config:  cfg,
-		file:    f,
-		encoder: json.NewEncoder(f),
-	}, nil
+	return &Recorder{config: cfg, w: w}, nil
 }
 
 func (r *Recorder) Record(tool string, agentID string, duration time.Duration, isError bool, errMsg string) {
-	if !r.config.Enabled || r.file == nil {
+	if r == nil || !r.config.Enabled || r.w == nil {
 		return
 	}
-
 	event := ToolEvent{
 		Timestamp:  time.Now().Format(time.RFC3339),
 		Tool:       tool,
@@ -77,20 +62,20 @@ func (r *Recorder) Record(tool string, agentID string, duration time.Duration, i
 	if isError && errMsg != "" {
 		event.Error = errMsg
 	}
-
-	r.mu.Lock()
-	r.encoder.Encode(event)
-	r.mu.Unlock()
+	_ = r.w.Append(event)
 }
 
 func (r *Recorder) Close() error {
-	if r.file != nil {
-		return r.file.Close()
+	if r == nil {
+		return nil
 	}
-	return nil
+	return r.w.Close()
 }
 
 func (r *Recorder) Enabled() bool {
+	if r == nil {
+		return false
+	}
 	return r.config.Enabled
 }
 
