@@ -215,6 +215,7 @@ func (s *Store) migrateExtensions() error {
 		`ALTER TABLE tickets ADD COLUMN completed_at TEXT`,
 		`ALTER TABLE tickets ADD COLUMN time_to_claim_ms INTEGER`,
 		`ALTER TABLE tickets ADD COLUMN time_to_complete_ms INTEGER`,
+		`ALTER TABLE tickets ADD COLUMN estimate_hours REAL DEFAULT 0`,
 	}
 	for _, stmt := range stmts {
 		if _, err := s.db.Exec(stmt); err != nil && !isAlterColumnExists(err) {
