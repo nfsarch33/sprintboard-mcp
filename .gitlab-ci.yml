@@ -1,0 +1,39 @@
+stages:
+  - lint
+  - test
+  - build
+
+variables:
+  GOPATH: /go
+  GOPROXY: 'https://proxy.golang.org,direct'
+
+lint:
+  stage: lint
+  image: golang:1.22-alpine
+  tags: [wsl1, go]
+  script:
+    - go vet ./...
+  allow_failure: false
+
+test:
+  stage: test
+  image: golang:1.22-alpine
+  tags: [wsl1, go]
+  script:
+    - apk add --no-cache gcc musl-dev
+    - CGO_ENABLED=1 go test -race -count=1 ./...
+  allow_failure: false
+
+build:
+  stage: build
+  image: golang:1.22-alpine
+  tags: [wsl1, go]
+  script:
+    - apk add --no-cache gcc musl-dev
+    - CGO_ENABLED=1 go build -o sprintboard-api ./cmd/sprintboard-api/
+    - CGO_ENABLED=1 go build -o sprintboard-mcp ./cmd/sprintboard-mcp/
+  artifacts:
+    paths:
+      - sprintboard-api
+      - sprintboard-mcp
+    expire_in: 7 days
