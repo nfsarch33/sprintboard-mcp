@@ -227,6 +227,10 @@ func (s *Server) handleToolsList(req JSONRPCRequest) JSONRPCResponse {
 		{Name: "sprint_topo_sort", Description: "Return tickets in topological order (dependency-first) for a sprint", InputSchema: idOnlySchema("sprint_id")},
 		{Name: "ticket_comment_add", Description: "Append a comment to a ticket (audit log of agent activity that doesn't deserve a status transition)", InputSchema: ticketCommentAddSchema()},
 		{Name: "ticket_comment_list", Description: "List all comments on a ticket in chronological order", InputSchema: idOnlySchema("ticket_id")},
+		// v8900-B19: structured SQL search and sprint analytics
+		{Name: "ticket_search_filter", Description: "Filter tickets by status/owner/priority/labels/sprint with optional free-text fragment (SQL, not vector)", InputSchema: ticketSearchFilterSchema()},
+		{Name: "sprint_history", Description: "List every sprint, optionally narrowed by status (v8900-B17)", InputSchema: sprintHistorySchema()},
+		{Name: "sprint_metrics", Description: "Rollup of summary, SLAs, velocity, and burndown for a sprint (v8900-B18)", InputSchema: sprintMetricsSchema()},
 	}
 	return JSONRPCResponse{JSONRPC: "2.0", ID: req.ID, Result: map[string]interface{}{"tools": tools}}
 }
@@ -318,6 +322,12 @@ func (s *Server) dispatchInner(tool string, args json.RawMessage) (string, bool)
 		return s.ticketCommentAdd(args)
 	case "ticket_comment_list":
 		return s.ticketCommentList(args)
+	case "ticket_search_filter":
+		return s.ticketSearchFilter(args)
+	case "sprint_history":
+		return s.sprintHistory(args)
+	case "sprint_metrics":
+		return s.sprintMetrics(args)
 	default:
 		return fmt.Sprintf("unknown tool: %s", tool), true
 	}

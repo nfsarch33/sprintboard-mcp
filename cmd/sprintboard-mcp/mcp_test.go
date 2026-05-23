@@ -163,8 +163,9 @@ func TestE2EToolsList(t *testing.T) {
 	}
 	// 23 base tools + 5 DAG tools (ticket_depend_add/remove, ticket_blocked_by, ticket_ready_list, sprint_topo_sort)
 	// + 2 v8700-B23 ticket_comment tools (ticket_comment_add, ticket_comment_list)
-	if len(tools) != 30 {
-		t.Errorf("expected 30 tools, got %d", len(tools))
+	// + 3 v8900-B19 tools (ticket_search_filter, sprint_history, sprint_metrics)
+	if len(tools) != 33 {
+		t.Errorf("expected 33 tools, got %d", len(tools))
 	}
 }
 
