@@ -109,7 +109,10 @@ func TestTicketClaimRacePrevention(t *testing.T) {
 	http.Post(ts.URL+"/api/v1/tickets", "application/json", bytes.NewBufferString(`{"id":"T-RACE-1","title":"Race ticket","sprint_id":"race-test"}`))
 
 	claim1 := `{"agent_id":"agent-A"}`
-	resp1, _ := http.Post(ts.URL+"/api/v1/tickets/T-RACE-1/claim", "application/json", bytes.NewBufferString(claim1))
+	resp1, err := http.Post(ts.URL+"/api/v1/tickets/T-RACE-1/claim", "application/json", bytes.NewBufferString(claim1))
+	if err != nil {
+		t.Fatalf("claim1: %v", err)
+	}
 	defer resp1.Body.Close()
 
 	if resp1.StatusCode != http.StatusOK {
@@ -117,7 +120,10 @@ func TestTicketClaimRacePrevention(t *testing.T) {
 	}
 
 	claim2 := `{"agent_id":"agent-B"}`
-	resp2, _ := http.Post(ts.URL+"/api/v1/tickets/T-RACE-1/claim", "application/json", bytes.NewBufferString(claim2))
+	resp2, err := http.Post(ts.URL+"/api/v1/tickets/T-RACE-1/claim", "application/json", bytes.NewBufferString(claim2))
+	if err != nil {
+		t.Fatalf("claim2: %v", err)
+	}
 	defer resp2.Body.Close()
 
 	if resp2.StatusCode != http.StatusConflict {
@@ -254,13 +260,19 @@ func TestSprintCreate_Duplicate(t *testing.T) {
 	defer ts.Close()
 
 	payload := `{"id":"dup-sprint","name":"First"}`
-	resp, _ := http.Post(ts.URL+"/api/v1/sprints", "application/json", bytes.NewBufferString(payload))
+	resp, err := http.Post(ts.URL+"/api/v1/sprints", "application/json", bytes.NewBufferString(payload))
+	if err != nil {
+		t.Fatalf("first create: %v", err)
+	}
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("first create status = %d, want 201", resp.StatusCode)
 	}
 
-	resp2, _ := http.Post(ts.URL+"/api/v1/sprints", "application/json", bytes.NewBufferString(payload))
+	resp2, err := http.Post(ts.URL+"/api/v1/sprints", "application/json", bytes.NewBufferString(payload))
+	if err != nil {
+		t.Fatalf("dup create: %v", err)
+	}
 	defer resp2.Body.Close()
 	if resp2.StatusCode != http.StatusConflict {
 		t.Errorf("duplicate create status = %d, want 409", resp2.StatusCode)
@@ -285,7 +297,10 @@ func TestTicketCreate_InvalidJSON(t *testing.T) {
 	ts := setupTestServer(t)
 	defer ts.Close()
 
-	resp, _ := http.Post(ts.URL+"/api/v1/tickets", "application/json", bytes.NewBufferString(`not json`))
+	resp, err := http.Post(ts.URL+"/api/v1/tickets", "application/json", bytes.NewBufferString(`not json`))
+	if err != nil {
+		t.Fatalf("post: %v", err)
+	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", resp.StatusCode)
@@ -306,7 +321,10 @@ func TestTicketCreate_MissingFields(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			resp, _ := http.Post(ts.URL+"/api/v1/tickets", "application/json", bytes.NewBufferString(tc.payload))
+			resp, err := http.Post(ts.URL+"/api/v1/tickets", "application/json", bytes.NewBufferString(tc.payload))
+			if err != nil {
+				t.Fatalf("post: %v", err)
+			}
 			defer resp.Body.Close()
 			if resp.StatusCode != http.StatusBadRequest {
 				t.Errorf("status = %d, want 400", resp.StatusCode)
@@ -341,7 +359,10 @@ func TestTicketClaim_InvalidJSON(t *testing.T) {
 	http.Post(ts.URL+"/api/v1/sprints", "application/json", bytes.NewBufferString(`{"id":"cj-test","name":"Claim JSON"}`))
 	http.Post(ts.URL+"/api/v1/tickets", "application/json", bytes.NewBufferString(`{"id":"T-CJ-1","title":"Claim JSON ticket","sprint_id":"cj-test"}`))
 
-	resp, _ := http.Post(ts.URL+"/api/v1/tickets/T-CJ-1/claim", "application/json", bytes.NewBufferString(`{broken`))
+	resp, err := http.Post(ts.URL+"/api/v1/tickets/T-CJ-1/claim", "application/json", bytes.NewBufferString(`{broken`))
+	if err != nil {
+		t.Fatalf("post: %v", err)
+	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", resp.StatusCode)
@@ -352,7 +373,10 @@ func TestAgentRegister_MissingAgentID(t *testing.T) {
 	ts := setupTestServer(t)
 	defer ts.Close()
 
-	resp, _ := http.Post(ts.URL+"/api/v1/agents", "application/json", bytes.NewBufferString(`{"surface":"test"}`))
+	resp, err := http.Post(ts.URL+"/api/v1/agents", "application/json", bytes.NewBufferString(`{"surface":"test"}`))
+	if err != nil {
+		t.Fatalf("post: %v", err)
+	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", resp.StatusCode)
@@ -373,7 +397,10 @@ func TestHandoff_MissingFields(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			resp, _ := http.Post(ts.URL+"/api/v1/handoffs", "application/json", bytes.NewBufferString(tc.payload))
+			resp, err := http.Post(ts.URL+"/api/v1/handoffs", "application/json", bytes.NewBufferString(tc.payload))
+			if err != nil {
+				t.Fatalf("post: %v", err)
+			}
 			defer resp.Body.Close()
 			if resp.StatusCode != http.StatusBadRequest {
 				t.Errorf("status = %d, want 400", resp.StatusCode)
@@ -426,7 +453,10 @@ func TestTicketCreate_RejectsBadDueDate(t *testing.T) {
 	defer ts.Close()
 
 	payload := `{"id":"T-BAD","title":"bad","due_date":"yesterday"}`
-	resp, _ := http.Post(ts.URL+"/api/v1/tickets", "application/json", bytes.NewBufferString(payload))
+	resp, err := http.Post(ts.URL+"/api/v1/tickets", "application/json", bytes.NewBufferString(payload))
+	if err != nil {
+		t.Fatalf("post: %v", err)
+	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400 for bad due_date", resp.StatusCode)
@@ -580,7 +610,10 @@ func TestV8700_B23_TicketComments_REST_Validation(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			resp, _ := http.Post(ts.URL+"/api/v1/tickets/T-XYZ/comments", "application/json", bytes.NewBufferString(tc.payload))
+			resp, err := http.Post(ts.URL+"/api/v1/tickets/T-XYZ/comments", "application/json", bytes.NewBufferString(tc.payload))
+			if err != nil {
+				t.Fatalf("post: %v", err)
+			}
 			defer resp.Body.Close()
 			if resp.StatusCode != http.StatusBadRequest {
 				t.Errorf("status = %d, want 400", resp.StatusCode)
