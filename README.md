@@ -107,4 +107,4 @@ Add to `~/.cursor/mcp.json`:
 
 ## License
 
-Apache-2.0
+MIT
