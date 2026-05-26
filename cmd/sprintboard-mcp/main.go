@@ -247,6 +247,10 @@ func (s *Server) handleToolsList(req JSONRPCRequest) JSONRPCResponse {
 		{Name: "sprint_time_report", Description: "Time report: estimate vs actual per ticket with accuracy ratio", InputSchema: sprintTimeReportSchema()},
 		{Name: "ticket_tree", Description: "Full hierarchy tree for a sprint (parent/child ticket nesting)", InputSchema: ticketTreeSchema()},
 		{Name: "session_summary", Description: "Lean current-state query: active sprint, recent handoffs, agents, blocked tickets", InputSchema: sessionSummarySchema()},
+		// Session handoff progressive disclosure
+		{Name: "session_handoff_store", Description: "Store a session handoff (summary, carry-forward, blockers) for progressive disclosure across sessions", InputSchema: sessionHandoffStoreSchema()},
+		{Name: "session_handoff_latest", Description: "Retrieve latest session handoffs (default 3), optionally filtered by agent_id", InputSchema: sessionHandoffLatestSchema()},
+		{Name: "session_handoff_search", Description: "Search session handoffs by keyword (matches summary, carry_forward, blockers)", InputSchema: sessionHandoffSearchSchema()},
 	}
 	return JSONRPCResponse{JSONRPC: "2.0", ID: req.ID, Result: map[string]interface{}{"tools": tools}}
 }
@@ -374,6 +378,12 @@ func (s *Server) dispatchInner(tool string, args json.RawMessage) (string, bool)
 		return s.ticketTreeTool(args)
 	case "session_summary":
 		return s.sessionSummaryTool(args)
+	case "session_handoff_store":
+		return s.sessionHandoffStore(args)
+	case "session_handoff_latest":
+		return s.sessionHandoffLatest(args)
+	case "session_handoff_search":
+		return s.sessionHandoffSearch(args)
 	default:
 		return fmt.Sprintf("unknown tool: %s", tool), true
 	}
