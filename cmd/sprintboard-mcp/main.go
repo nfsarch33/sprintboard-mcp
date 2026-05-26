@@ -251,6 +251,16 @@ func (s *Server) handleToolsList(req JSONRPCRequest) JSONRPCResponse {
 		{Name: "session_handoff_store", Description: "Store a session handoff (summary, carry-forward, blockers) for progressive disclosure across sessions", InputSchema: sessionHandoffStoreSchema()},
 		{Name: "session_handoff_latest", Description: "Retrieve latest session handoffs (default 3), optionally filtered by agent_id", InputSchema: sessionHandoffLatestSchema()},
 		{Name: "session_handoff_search", Description: "Search session handoffs by keyword (matches summary, carry_forward, blockers)", InputSchema: sessionHandoffSearchSchema()},
+		// v17300: sprint goals
+		{Name: "sprint_goal_set", Description: "Set or update the goal for a sprint", InputSchema: sprintGoalSetSchema()},
+		{Name: "sprint_goal_get", Description: "Get the goal text for a sprint", InputSchema: sprintGoalGetSchema()},
+		// v17300: progressive disclosure
+		{Name: "context_summary", Description: "Progressive-disclosure context: depth=1 ~100 tokens (roadmaps+sprint), depth=2 ~500 tokens (+epics+counts), depth=3 ~2000 tokens (+tickets)", InputSchema: contextSummarySchema()},
+		{Name: "context_detail", Description: "Drill into any entity (roadmap/programme/epic/sprint/ticket) and get its metadata + immediate children", InputSchema: contextDetailSchema()},
+		// v17300: session handoff archive
+		{Name: "session_handoff_archive", Description: "Manually archive a session handoff by ID", InputSchema: sessionHandoffArchiveSchema()},
+		// v17300: token-budget startup
+		{Name: "startup_context", Description: "Single-call session startup: latest 3 handoffs + active sprint goal + depth-1 context summary (~300 tokens)", InputSchema: startupContextSchema()},
 	}
 	return JSONRPCResponse{JSONRPC: "2.0", ID: req.ID, Result: map[string]interface{}{"tools": tools}}
 }
@@ -384,6 +394,18 @@ func (s *Server) dispatchInner(tool string, args json.RawMessage) (string, bool)
 		return s.sessionHandoffLatest(args)
 	case "session_handoff_search":
 		return s.sessionHandoffSearch(args)
+	case "sprint_goal_set":
+		return s.sprintGoalSet(args)
+	case "sprint_goal_get":
+		return s.sprintGoalGet(args)
+	case "context_summary":
+		return s.contextSummary(args)
+	case "context_detail":
+		return s.contextDetail(args)
+	case "session_handoff_archive":
+		return s.sessionHandoffArchive(args)
+	case "startup_context":
+		return s.startupContext(args)
 	default:
 		return fmt.Sprintf("unknown tool: %s", tool), true
 	}

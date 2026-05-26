@@ -212,7 +212,10 @@ func (s *Store) migrate() error {
 	if err := s.migrateV2Hierarchy(); err != nil {
 		return err
 	}
-	return s.migrateSessionHandoffs()
+	if err := s.migrateSessionHandoffs(); err != nil {
+		return err
+	}
+	return s.migrateSessionHandoffArchive()
 }
 
 // migrateExtensions adds v7800-B3 mini-jira fields (due_date, labels JSON,

@@ -29,8 +29,9 @@ func sessionHandoffLatestSchema() map[string]interface{} {
 	return map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
-			"agent_id": map[string]string{"type": "string", "description": "Filter by agent surface (optional)"},
-			"limit":    map[string]string{"type": "integer", "description": "Number of handoffs to return (default 3, max 20)"},
+			"agent_id":         map[string]string{"type": "string", "description": "Filter by agent surface (optional)"},
+			"limit":            map[string]string{"type": "integer", "description": "Number of handoffs to return (default 3, max 20)"},
+			"include_archived": map[string]string{"type": "boolean", "description": "Include archived handoffs (default false)"},
 		},
 	}
 }
@@ -78,6 +79,8 @@ func (s *Server) sessionHandoffStore(args json.RawMessage) (string, bool) {
 		return fmt.Sprintf("store handoff: %v", err), true
 	}
 
+	s.store.AutoArchiveOldHandoffs()
+
 	out, _ := json.Marshal(map[string]string{
 		"status": "stored",
 		"id":     p.ID,
@@ -87,14 +90,15 @@ func (s *Server) sessionHandoffStore(args json.RawMessage) (string, bool) {
 
 func (s *Server) sessionHandoffLatest(args json.RawMessage) (string, bool) {
 	var p struct {
-		AgentID string `json:"agent_id"`
-		Limit   int    `json:"limit"`
+		AgentID         string `json:"agent_id"`
+		Limit           int    `json:"limit"`
+		IncludeArchived bool   `json:"include_archived"`
 	}
 	if err := json.Unmarshal(args, &p); err != nil {
 		return fmt.Sprintf("invalid args: %v", err), true
 	}
 
-	handoffs, err := s.store.LatestSessionHandoffs(p.AgentID, p.Limit)
+	handoffs, err := s.store.LatestSessionHandoffsFiltered(p.AgentID, p.Limit, p.IncludeArchived)
 	if err != nil {
 		return fmt.Sprintf("query handoffs: %v", err), true
 	}
