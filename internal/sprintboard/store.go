@@ -125,6 +125,10 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
+func (s *Store) Ping() error {
+	return s.db.QueryRow("SELECT 1").Err()
+}
+
 func (s *Store) migrate() error {
 	schema := `
 	CREATE TABLE IF NOT EXISTS sprints (
@@ -202,7 +206,10 @@ func (s *Store) migrate() error {
 	if err := s.migrateComments(); err != nil {
 		return err
 	}
-	return s.migrateTemplates()
+	if err := s.migrateTemplates(); err != nil {
+		return err
+	}
+	return s.migrateV2Hierarchy()
 }
 
 // migrateExtensions adds v7800-B3 mini-jira fields (due_date, labels JSON,

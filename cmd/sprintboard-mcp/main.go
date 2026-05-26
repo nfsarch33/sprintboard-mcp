@@ -231,6 +231,22 @@ func (s *Server) handleToolsList(req JSONRPCRequest) JSONRPCResponse {
 		{Name: "ticket_search_filter", Description: "Filter tickets by status/owner/priority/labels/sprint with optional free-text fragment (SQL, not vector)", InputSchema: ticketSearchFilterSchema()},
 		{Name: "sprint_history", Description: "List every sprint, optionally narrowed by status (v8900-B17)", InputSchema: sprintHistorySchema()},
 		{Name: "sprint_metrics", Description: "Rollup of summary, SLAs, velocity, and burndown for a sprint (v8900-B18)", InputSchema: sprintMetricsSchema()},
+		// v2 hierarchy: roadmap -> programme -> epic, time tracking, progressive disclosure
+		{Name: "roadmap_create", Description: "Create a new roadmap (top-level strategic container)", InputSchema: roadmapCreateSchema()},
+		{Name: "roadmap_list", Description: "List all roadmaps", InputSchema: roadmapListSchema()},
+		{Name: "roadmap_view", Description: "View a single roadmap by ID", InputSchema: roadmapViewSchema()},
+		{Name: "programme_create", Description: "Create a programme under a roadmap", InputSchema: programmeCreateSchema()},
+		{Name: "programme_list", Description: "List programmes, optionally filtered by roadmap_id", InputSchema: programmeListSchema()},
+		{Name: "programme_view", Description: "View a single programme by ID", InputSchema: programmeViewSchema()},
+		{Name: "epic_create", Description: "Create an epic under a programme", InputSchema: epicCreateSchema()},
+		{Name: "epic_list", Description: "List epics, optionally filtered by programme_id", InputSchema: epicListSchema()},
+		{Name: "epic_view", Description: "View a single epic by ID", InputSchema: epicViewSchema()},
+		{Name: "epic_burndown", Description: "Burndown report for an epic: ticket counts by status", InputSchema: epicBurndownSchema()},
+		{Name: "ticket_log_time", Description: "Log actual minutes worked on a ticket (additive)", InputSchema: ticketLogTimeSchema()},
+		{Name: "ticket_estimate", Description: "Set estimated minutes for a ticket", InputSchema: ticketEstimateSchema()},
+		{Name: "sprint_time_report", Description: "Time report: estimate vs actual per ticket with accuracy ratio", InputSchema: sprintTimeReportSchema()},
+		{Name: "ticket_tree", Description: "Full hierarchy tree for a sprint (parent/child ticket nesting)", InputSchema: ticketTreeSchema()},
+		{Name: "session_summary", Description: "Lean current-state query: active sprint, recent handoffs, agents, blocked tickets", InputSchema: sessionSummarySchema()},
 	}
 	return JSONRPCResponse{JSONRPC: "2.0", ID: req.ID, Result: map[string]interface{}{"tools": tools}}
 }
@@ -328,6 +344,36 @@ func (s *Server) dispatchInner(tool string, args json.RawMessage) (string, bool)
 		return s.sprintHistory(args)
 	case "sprint_metrics":
 		return s.sprintMetrics(args)
+	case "roadmap_create":
+		return s.roadmapCreate(args)
+	case "roadmap_list":
+		return s.roadmapList(args)
+	case "roadmap_view":
+		return s.roadmapView(args)
+	case "programme_create":
+		return s.programmeCreate(args)
+	case "programme_list":
+		return s.programmeList(args)
+	case "programme_view":
+		return s.programmeView(args)
+	case "epic_create":
+		return s.epicCreate(args)
+	case "epic_list":
+		return s.epicList(args)
+	case "epic_view":
+		return s.epicView(args)
+	case "epic_burndown":
+		return s.epicBurndownTool(args)
+	case "ticket_log_time":
+		return s.ticketLogTime(args)
+	case "ticket_estimate":
+		return s.ticketEstimateTool(args)
+	case "sprint_time_report":
+		return s.sprintTimeReportTool(args)
+	case "ticket_tree":
+		return s.ticketTreeTool(args)
+	case "session_summary":
+		return s.sessionSummaryTool(args)
 	default:
 		return fmt.Sprintf("unknown tool: %s", tool), true
 	}

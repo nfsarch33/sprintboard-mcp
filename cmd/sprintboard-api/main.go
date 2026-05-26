@@ -55,6 +55,7 @@ func main() {
 
 	<-ctx.Done()
 	logger.Info("shutting down")
+	srv.SetShuttingDown()
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

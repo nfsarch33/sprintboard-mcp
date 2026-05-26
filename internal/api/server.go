@@ -6,15 +6,17 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/nfsarch33/sprintboard-mcp/internal/sprintboard"
 )
 
 type Server struct {
-	store  *sprintboard.Store
-	logger *slog.Logger
-	mux    *http.ServeMux
+	store    *sprintboard.Store
+	logger   *slog.Logger
+	mux      *http.ServeMux
+	shutting atomic.Bool
 }
 
 func NewServer(store *sprintboard.Store, logger *slog.Logger) *Server {
@@ -28,7 +30,12 @@ func (s *Server) Handler() http.Handler {
 	return s.withMiddleware(s.mux)
 }
 
+// SetShuttingDown marks the server as shutting down; /readyz returns 503.
+func (s *Server) SetShuttingDown() { s.shutting.Store(true) }
+
 func (s *Server) routes() {
+	s.mux.HandleFunc("GET /healthz", s.handleHealthz)
+	s.mux.HandleFunc("GET /readyz", s.handleReadyz)
 	s.mux.HandleFunc("GET /api/v1/health", s.handleHealth)
 	s.mux.HandleFunc("POST /api/v1/sprints", s.handleSprintCreate)
 	s.mux.HandleFunc("GET /api/v1/sprints/{id}", s.handleSprintStatus)
@@ -202,6 +209,29 @@ func (s *Server) withMiddleware(h http.Handler) http.Handler {
 			"duration_ms", time.Since(start).Milliseconds(),
 		)
 	})
+}
+
+func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
+	if err := s.store.Ping(); err != nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]string{"status": "error", "error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (s *Server) handleReadyz(w http.ResponseWriter, _ *http.Request) {
+	if s.shutting.Load() {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]string{"status": "shutting_down"})
+		return
+	}
+	if err := s.store.Ping(); err != nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]string{"status": "error", "error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
