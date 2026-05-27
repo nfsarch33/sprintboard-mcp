@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
+	_ "github.com/jackc/pgx/v5/stdlib"
 	_ "modernc.org/sqlite"
 )
 
@@ -80,15 +81,33 @@ type Handoff struct {
 }
 
 type Store struct {
-	db *sql.DB
+	db *dialectDB
 }
+
+// Dialect returns the active database dialect ("sqlite" or "postgres").
+func (s *Store) Dialect() string { return s.db.dialect }
+
+// RawDB returns the underlying *sql.DB for operations that bypass the
+// dialect wrapper (migrations, data export). Not for regular queries.
+func (s *Store) RawDB() *sql.DB { return s.db.raw }
 
 func DefaultDBPath() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".config", "helix-dev-tools", "sprintboard.db")
 }
 
-func NewStore(dbPath string) (*Store, error) { return Open(dbPath) }
+// NewStore opens the database based on the SPRINTBOARD_DB_URL env var.
+// If the env var is set it opens PostgreSQL; otherwise it falls back to
+// SQLite at the given path (empty = default path).
+func NewStore(dbPath string) (*Store, error) {
+	if dsn := os.Getenv("SPRINTBOARD_DB_URL"); dsn != "" {
+		return OpenPostgres(dsn)
+	}
+	if dbPath == "" {
+		dbPath = DefaultDBPath()
+	}
+	return Open(dbPath)
+}
 
 func Open(dbPath string) (*Store, error) {
 	dir := filepath.Dir(dbPath)
@@ -113,7 +132,32 @@ func Open(dbPath string) (*Store, error) {
 
 	db.SetMaxOpenConns(1)
 
-	s := &Store{db: db}
+	s := &Store{db: &dialectDB{raw: db, dialect: DialectSQLite}}
+	if err := s.migrate(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate: %w", err)
+	}
+	return s, nil
+}
+
+// OpenPostgres connects to PostgreSQL via pgx/stdlib. The DSN follows the
+// standard PostgreSQL format: postgres://user:pass@host:port/dbname?sslmode=disable
+func OpenPostgres(dsn string) (*Store, error) {
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("open postgres: %w", err)
+	}
+
+	db.SetMaxOpenConns(10)
+	db.SetMaxIdleConns(5)
+	db.SetConnMaxLifetime(5 * time.Minute)
+
+	if err := db.Ping(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("ping postgres: %w", err)
+	}
+
+	s := &Store{db: &dialectDB{raw: db, dialect: DialectPostgres}}
 	if err := s.migrate(); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
@@ -185,7 +229,7 @@ func (s *Store) migrate() error {
 	CREATE INDEX IF NOT EXISTS idx_handoffs_ticket ON handoffs(ticket_id);
 	`
 
-	if _, err := s.db.Exec(schema); err != nil {
+	if _, err := s.db.ExecDDL(schema); err != nil {
 		return err
 	}
 	if err := s.migrateVectors(); err != nil {

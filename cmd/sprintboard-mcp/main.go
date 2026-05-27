@@ -79,7 +79,7 @@ func resolveAgentSurface() string {
 }
 
 func main() {
-	store, err := sprintboard.Open(sprintboard.DefaultDBPath())
+	store, err := sprintboard.NewStore("")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to open store: %v\n", err)
 		os.Exit(1)

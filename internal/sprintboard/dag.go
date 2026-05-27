@@ -1,6 +1,9 @@
 package sprintboard
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 func (s *Store) migrateDAG() error {
 	_, err := s.db.Exec(`
@@ -28,9 +31,9 @@ func (s *Store) AddDependency(ticketID, dependsOn string) error {
 	}
 
 	_, err := s.db.Exec(
-		`INSERT OR IGNORE INTO ticket_dependencies (ticket_id, depends_on, created_at)
-		 VALUES (?, ?, datetime('now'))`,
-		ticketID, dependsOn,
+		`INSERT INTO ticket_dependencies (ticket_id, depends_on, created_at)
+		 VALUES (?, ?, ?) ON CONFLICT DO NOTHING`,
+		ticketID, dependsOn, formatTime(time.Now()),
 	)
 	return err
 }

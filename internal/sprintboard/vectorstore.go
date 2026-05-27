@@ -22,7 +22,7 @@ type SearchResult struct {
 }
 
 func (s *Store) migrateVectors() error {
-	_, err := s.db.Exec(`
+	_, err := s.db.ExecDDL(`
 		CREATE TABLE IF NOT EXISTS embeddings (
 			source_type TEXT NOT NULL,
 			source_id TEXT NOT NULL,
@@ -42,8 +42,10 @@ func (s *Store) StoreEmbedding(sourceType, sourceID string, embedding []float32)
 	}
 
 	_, err = s.db.Exec(
-		`INSERT OR REPLACE INTO embeddings (source_type, source_id, embedding, updated_at)
-		 VALUES (?, ?, ?, ?)`,
+		`INSERT INTO embeddings (source_type, source_id, embedding, updated_at)
+		 VALUES (?, ?, ?, ?)
+		 ON CONFLICT (source_type, source_id) DO UPDATE SET
+		   embedding = EXCLUDED.embedding, updated_at = EXCLUDED.updated_at`,
 		sourceType, sourceID, blob, formatTime(time.Now()),
 	)
 	return err
@@ -137,4 +139,3 @@ func cosineSimilarity(a, b []float32) float64 {
 	}
 	return dot / denom
 }
-

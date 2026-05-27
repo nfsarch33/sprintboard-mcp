@@ -31,7 +31,7 @@ func (s *Store) migrateComments() error {
 	CREATE INDEX IF NOT EXISTS idx_ticket_comments_ticket
 		ON ticket_comments(ticket_id, created_at);
 	`
-	if _, err := s.db.Exec(schema); err != nil {
+	if _, err := s.db.ExecDDL(schema); err != nil {
 		return fmt.Errorf("migrate ticket_comments: %w", err)
 	}
 	return nil

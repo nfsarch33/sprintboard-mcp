@@ -33,6 +33,8 @@ func main() {
 		os.Exit(1)
 	}
 
+	logger.Info("database opened", "dialect", store.Dialect())
+
 	srv := api.NewServer(store, logger)
 	httpSrv := &http.Server{
 		Addr:         *addr,
