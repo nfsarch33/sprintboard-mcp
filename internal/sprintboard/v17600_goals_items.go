@@ -1,7 +1,6 @@
 package sprintboard
 
 import (
-	"database/sql"
 	"fmt"
 	"time"
 )
