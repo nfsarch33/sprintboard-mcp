@@ -261,6 +261,13 @@ func (s *Server) handleToolsList(req JSONRPCRequest) JSONRPCResponse {
 		{Name: "session_handoff_archive", Description: "Manually archive a session handoff by ID", InputSchema: sessionHandoffArchiveSchema()},
 		// v17300: token-budget startup
 		{Name: "startup_context", Description: "Single-call session startup: latest 3 handoffs + active sprint goal + depth-1 context summary (~300 tokens)", InputSchema: startupContextSchema()},
+		// v17600: sprint goals (multi-goal per sprint), roadmap items, epic-based ticket tree, FTS
+		{Name: "sprint_goal_create", Description: "Add a goal to a sprint (supports multiple goals per sprint with priority)", InputSchema: sprintGoalCreateSchema()},
+		{Name: "sprint_goal_list", Description: "List all goals for a sprint, ordered by priority", InputSchema: sprintGoalListSchema()},
+		{Name: "roadmap_item_create", Description: "Create a roadmap item with optional epic linkage", InputSchema: roadmapItemCreateSchema()},
+		{Name: "roadmap_item_list", Description: "List roadmap items for a roadmap, ordered by priority", InputSchema: roadmapItemListSchema()},
+		{Name: "ticket_tree_by_epic", Description: "Epic-rooted ticket tree: all tickets under an epic with parent/child nesting", InputSchema: ticketTreeByEpicSchema()},
+		{Name: "session_handoff_fts", Description: "Full-text search session handoffs (BM25/ts_rank on PostgreSQL, LIKE on SQLite)", InputSchema: sessionHandoffFTSSchema()},
 	}
 	return JSONRPCResponse{JSONRPC: "2.0", ID: req.ID, Result: map[string]interface{}{"tools": tools}}
 }
@@ -406,6 +413,18 @@ func (s *Server) dispatchInner(tool string, args json.RawMessage) (string, bool)
 		return s.sessionHandoffArchive(args)
 	case "startup_context":
 		return s.startupContext(args)
+	case "sprint_goal_create":
+		return s.sprintGoalCreate(args)
+	case "sprint_goal_list":
+		return s.sprintGoalList(args)
+	case "roadmap_item_create":
+		return s.roadmapItemCreate(args)
+	case "roadmap_item_list":
+		return s.roadmapItemList(args)
+	case "ticket_tree_by_epic":
+		return s.ticketTreeByEpic(args)
+	case "session_handoff_fts":
+		return s.sessionHandoffFTS(args)
 	default:
 		return fmt.Sprintf("unknown tool: %s", tool), true
 	}
