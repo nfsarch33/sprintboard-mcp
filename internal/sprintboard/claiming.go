@@ -175,9 +175,9 @@ func (s *Store) ReleaseStaleClaims(expiry time.Duration) (int64, error) {
 // This handles corruption from direct DB writes or race conditions that bypass ClaimTicket.
 func (s *Store) ReleaseNullClaims() (int64, error) {
 	res, err := s.db.Exec(
-		`UPDATE tickets SET status = ?, updated_at = datetime('now')
+		`UPDATE tickets SET status = ?, updated_at = ?
 		 WHERE status = ? AND (claimed_by IS NULL OR claimed_by = '')`,
-		StatusBacklog, StatusInProgress,
+		StatusBacklog, formatTime(time.Now()), StatusInProgress,
 	)
 	if err != nil {
 		return 0, err
