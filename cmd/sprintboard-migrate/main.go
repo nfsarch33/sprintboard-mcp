@@ -77,7 +77,33 @@ func main() {
 		log.Printf("%-25s: %d copied (%d in dst)", table, copied, dstCount)
 	}
 
+	if !*dryRun {
+		resetSequences(dstDB)
+	}
 	log.Println("migration complete")
+}
+
+func resetSequences(db *sql.DB) {
+	seqs := []struct {
+		table, col string
+	}{
+		{"ticket_transitions", "id"},
+		{"handoffs", "id"},
+		{"ticket_comments", "id"},
+	}
+	for _, s := range seqs {
+		var maxID sql.NullInt64
+		db.QueryRow(fmt.Sprintf("SELECT MAX(%s) FROM %s", s.col, s.table)).Scan(&maxID)
+		if maxID.Valid && maxID.Int64 > 0 {
+			seqName := fmt.Sprintf("%s_%s_seq", s.table, s.col)
+			_, err := db.Exec(fmt.Sprintf("SELECT setval('%s', $1)", seqName), maxID.Int64)
+			if err != nil {
+				log.Printf("reset sequence %s: %v", seqName, err)
+			} else {
+				log.Printf("sequence %-30s: reset to %d", seqName, maxID.Int64)
+			}
+		}
+	}
 }
 
 func countRows(db *sql.DB, table string) int {
