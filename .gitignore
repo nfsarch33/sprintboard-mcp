@@ -1,0 +1,5 @@
+# v17400 build artefacts
+/sprintboard-api
+/sprintboard-mcp
+/sprintboard-migrate
+/sprintboard-worker

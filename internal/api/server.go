@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -11,6 +12,18 @@ import (
 
 	"github.com/nfsarch33/sprintboard-mcp/internal/sprintboard"
 )
+
+// drainAndClose drains any unread bytes on the request body and closes it.
+// net/http requires the body to be drained before the connection can be
+// returned to the keep-alive pool; otherwise the underlying TCP socket
+// stays half-closed in CLOSE_WAIT.
+func drainAndClose(r *http.Request) {
+	if r == nil || r.Body == nil {
+		return
+	}
+	_, _ = io.Copy(io.Discard, r.Body)
+	_ = r.Body.Close()
+}
 
 type Server struct {
 	store    *sprintboard.Store
@@ -26,6 +39,16 @@ func NewServer(store *sprintboard.Store, logger *slog.Logger) *Server {
 	return s
 }
 
+// Handler returns the configured middleware chain. We deliberately do NOT
+// wrap with http.TimeoutHandler here: the SQLite store uses SetMaxOpenConns(1)
+// for single-writer correctness, and TimeoutHandler's detached goroutine
+// model can leak DB connection ownership when the timer fires before the
+// inner handler releases the conn -- which cascades into permanent queue
+// starvation for every subsequent request. Per-request bounding is delegated
+// to client-side timeouts (helixon-agent's http.Client.Timeout=10s) and the
+// SQLite busy_timeout=5000 pragma. The CLOSE_WAIT regression that motivated
+// timeouts is solved by drainAndClose on every body-decoding handler, which
+// allows net/http to recycle the keep-alive connection cleanly.
 func (s *Server) Handler() http.Handler {
 	return s.withMiddleware(s.mux)
 }
@@ -71,6 +94,7 @@ func (s *Server) routes() {
 // T-8800-B13: sprint templates ---------------------------------------------
 
 func (s *Server) handleTemplateCreate(w http.ResponseWriter, r *http.Request) {
+	defer drainAndClose(r)
 	var tmpl sprintboard.SprintTemplate
 	if err := json.NewDecoder(r.Body).Decode(&tmpl); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
@@ -109,6 +133,7 @@ func (s *Server) handleTemplateDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleTemplateInstantiate(w http.ResponseWriter, r *http.Request) {
+	defer drainAndClose(r)
 	id := r.PathValue("id")
 	var req struct {
 		Sprint sprintboard.Sprint `json:"sprint"`
@@ -164,6 +189,7 @@ func (s *Server) handleSprintBurndown(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleTicketCommentAdd(w http.ResponseWriter, r *http.Request) {
+	defer drainAndClose(r)
 	id := r.PathValue("id")
 	var req struct {
 		Author string `json:"author"`
@@ -243,6 +269,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) handleSprintCreate(w http.ResponseWriter, r *http.Request) {
+	defer drainAndClose(r)
 	var req struct {
 		ID     string `json:"id"`
 		Name   string `json:"name"`
@@ -292,6 +319,7 @@ func (s *Server) handleSprintClose(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleTicketCreate(w http.ResponseWriter, r *http.Request) {
+	defer drainAndClose(r)
 	var req struct {
 		ID          string   `json:"id"`
 		Title       string   `json:"title"`
@@ -375,6 +403,7 @@ func (s *Server) handleSprintSLAs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleTicketClaim(w http.ResponseWriter, r *http.Request) {
+	defer drainAndClose(r)
 	id := r.PathValue("id")
 	var req struct {
 		AgentID string `json:"agent_id"`
@@ -400,6 +429,7 @@ func (s *Server) handleTicketClaim(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleTicketComplete(w http.ResponseWriter, r *http.Request) {
+	defer drainAndClose(r)
 	id := r.PathValue("id")
 	var req struct {
 		AgentID  string `json:"agent_id"`
@@ -426,6 +456,7 @@ func (s *Server) handleAgentList(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) handleAgentRegister(w http.ResponseWriter, r *http.Request) {
+	defer drainAndClose(r)
 	var req struct {
 		AgentID      string `json:"agent_id"`
 		Surface      string `json:"surface"`
@@ -455,6 +486,7 @@ func (s *Server) handleAgentRegister(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleHandoffPublish(w http.ResponseWriter, r *http.Request) {
+	defer drainAndClose(r)
 	var req struct {
 		TicketID  string `json:"ticket_id"`
 		FromAgent string `json:"from_agent"`
