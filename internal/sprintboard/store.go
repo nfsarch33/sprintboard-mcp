@@ -57,6 +57,9 @@ type Ticket struct {
 	ClaimedBy          string       `json:"claimed_by,omitempty"`
 	ClaimedAt          time.Time    `json:"-"`
 	CompletedAt        time.Time    `json:"-"`
+	Branch             string       `json:"branch,omitempty"`
+	PRURL              string       `json:"pr_url,omitempty"`
+	MergedAt           time.Time    `json:"merged_at,omitempty"`
 	CreatedAt          time.Time    `json:"created_at"`
 	UpdatedAt          time.Time    `json:"updated_at"`
 }
@@ -262,7 +265,10 @@ func (s *Store) migrate() error {
 	if err := s.migrateSessionHandoffArchive(); err != nil {
 		return err
 	}
-	return s.migrateV17600GoalsItems()
+	if err := s.migrateV17600GoalsItems(); err != nil {
+		return err
+	}
+	return s.migrateProvenance()
 }
 
 // migrateExtensions adds v7800-B3 mini-jira fields (due_date, labels JSON,
@@ -356,18 +362,19 @@ func (s *Store) CreateTicket(t Ticket) error {
 	}
 
 	_, err := s.db.Exec(
-		`INSERT INTO tickets (id, sprint_id, title, description, status, owner_agent, priority, acceptance_criteria, handoff_doc_path, due_date, labels, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO tickets (id, sprint_id, title, description, status, owner_agent, priority, acceptance_criteria, handoff_doc_path, due_date, labels, branch, pr_url, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		t.ID, t.SprintID, t.Title, t.Description, t.Status, t.OwnerAgent,
 		t.Priority, t.AcceptanceCriteria, t.HandoffDocPath,
 		formatTime(t.DueDate), encodeLabels(t.Labels),
+		t.Branch, t.PRURL,
 		formatTime(t.CreatedAt), formatTime(t.UpdatedAt),
 	)
 	return err
 }
 
 func (s *Store) ListTickets(sprintID string) ([]Ticket, error) {
-	query := `SELECT id, sprint_id, title, description, status, owner_agent, priority, acceptance_criteria, handoff_doc_path, due_date, labels, claimed_by, claimed_at, completed_at, created_at, updated_at FROM tickets`
+	query := `SELECT id, sprint_id, title, description, status, owner_agent, priority, acceptance_criteria, handoff_doc_path, due_date, labels, claimed_by, claimed_at, completed_at, branch, pr_url, merged_at, created_at, updated_at FROM tickets`
 	var args []interface{}
 	if sprintID != "" {
 		query += ` WHERE sprint_id = ?`
@@ -387,9 +394,11 @@ func (s *Store) ListTickets(sprintID string) ([]Ticket, error) {
 		var createdAt, updatedAt string
 		var sprintID, description, ownerAgent, acceptanceCriteria, handoffDocPath sql.NullString
 		var dueDate, labelsRaw, claimedBy, claimedAt, completedAt sql.NullString
+		var branch, prURL, mergedAt sql.NullString
 		err := rows.Scan(&t.ID, &sprintID, &t.Title, &description, &t.Status,
 			&ownerAgent, &t.Priority, &acceptanceCriteria, &handoffDocPath,
 			&dueDate, &labelsRaw, &claimedBy, &claimedAt, &completedAt,
+			&branch, &prURL, &mergedAt,
 			&createdAt, &updatedAt)
 		if err != nil {
 			return nil, err
@@ -404,6 +413,9 @@ func (s *Store) ListTickets(sprintID string) ([]Ticket, error) {
 		t.ClaimedBy = nullString(claimedBy)
 		t.ClaimedAt = parseTime(nullString(claimedAt))
 		t.CompletedAt = parseTime(nullString(completedAt))
+		t.Branch = nullString(branch)
+		t.PRURL = nullString(prURL)
+		t.MergedAt = parseTime(nullString(mergedAt))
 		t.CreatedAt = parseTime(createdAt)
 		t.UpdatedAt = parseTime(updatedAt)
 		tickets = append(tickets, t)
@@ -617,12 +629,14 @@ func (s *Store) GetTicket(id string) (Ticket, error) {
 	var createdAt, updatedAt string
 	var sprintID, description, ownerAgent, acceptanceCriteria, handoffDocPath sql.NullString
 	var dueDate, labelsRaw, claimedBy, claimedAt, completedAt sql.NullString
+	var branch, prURL, mergedAt sql.NullString
 	err := s.db.QueryRow(
-		`SELECT id, sprint_id, title, description, status, owner_agent, priority, acceptance_criteria, handoff_doc_path, due_date, labels, claimed_by, claimed_at, completed_at, created_at, updated_at
+		`SELECT id, sprint_id, title, description, status, owner_agent, priority, acceptance_criteria, handoff_doc_path, due_date, labels, claimed_by, claimed_at, completed_at, branch, pr_url, merged_at, created_at, updated_at
 		 FROM tickets WHERE id = ?`, id,
 	).Scan(&t.ID, &sprintID, &t.Title, &description, &t.Status,
 		&ownerAgent, &t.Priority, &acceptanceCriteria, &handoffDocPath,
 		&dueDate, &labelsRaw, &claimedBy, &claimedAt, &completedAt,
+		&branch, &prURL, &mergedAt,
 		&createdAt, &updatedAt)
 	if err != nil {
 		return Ticket{}, fmt.Errorf("ticket %q not found: %w", id, err)
@@ -637,6 +651,9 @@ func (s *Store) GetTicket(id string) (Ticket, error) {
 	t.ClaimedBy = nullString(claimedBy)
 	t.ClaimedAt = parseTime(nullString(claimedAt))
 	t.CompletedAt = parseTime(nullString(completedAt))
+	t.Branch = nullString(branch)
+	t.PRURL = nullString(prURL)
+	t.MergedAt = parseTime(nullString(mergedAt))
 	t.CreatedAt = parseTime(createdAt)
 	t.UpdatedAt = parseTime(updatedAt)
 	return t, nil

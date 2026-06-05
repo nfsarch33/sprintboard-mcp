@@ -69,7 +69,7 @@ func TestCompleteTicket_WithEvidence(t *testing.T) {
 	s.CreateTicket(Ticket{ID: "T1", SprintID: "S1", Title: "task", Status: StatusReady})
 	s.ClaimTicket("T1", "cursor-parent")
 
-	err := s.CompleteTicket("T1", "cursor-parent", "SHA:abc123, 5/5 tests pass")
+	err := s.CompleteTicket("T1", "cursor-parent", "SHA:abc123, 5/5 tests pass", "", "")
 	if err != nil {
 		t.Fatalf("CompleteTicket: %v", err)
 	}
@@ -87,7 +87,7 @@ func TestCompleteTicket_WrongAgent(t *testing.T) {
 	s.CreateTicket(Ticket{ID: "T1", SprintID: "S1", Title: "task", Status: StatusReady})
 	s.ClaimTicket("T1", "cursor-parent")
 
-	err := s.CompleteTicket("T1", "claude-code", "evidence")
+	err := s.CompleteTicket("T1", "claude-code", "evidence", "", "")
 	if err == nil {
 		t.Fatal("expected error for wrong agent completing")
 	}

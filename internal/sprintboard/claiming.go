@@ -106,7 +106,7 @@ func (s *Store) ClaimTicket(ticketID, agentID string) (ClaimResult, error) {
 	}, nil
 }
 
-func (s *Store) CompleteTicket(ticketID, agentID, evidence string) error {
+func (s *Store) CompleteTicket(ticketID, agentID, evidence, branch, prURL string) error {
 	completedAt := time.Now()
 	now := formatTime(completedAt)
 
@@ -124,9 +124,10 @@ func (s *Store) CompleteTicket(ticketID, agentID, evidence string) error {
 
 	res, err := s.db.Exec(
 		`UPDATE tickets SET status = ?, evidence = ?, updated_at = ?, completed_at = ?,
-		    time_to_complete_ms = ?
+		    time_to_complete_ms = ?, branch = COALESCE(NULLIF(?, ''), branch),
+		    pr_url = COALESCE(NULLIF(?, ''), pr_url)
 		 WHERE id = ? AND claimed_by = ?`,
-		StatusDone, evidence, now, now, timeToCompleteMS, ticketID, agentID,
+		StatusDone, evidence, now, now, timeToCompleteMS, branch, prURL, ticketID, agentID,
 	)
 	if err != nil {
 		return err

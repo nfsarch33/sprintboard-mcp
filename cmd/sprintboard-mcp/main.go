@@ -531,6 +531,8 @@ func (s *Server) ticketCreate(args json.RawMessage) (string, bool) {
 		AcceptanceCriteria string   `json:"acceptance_criteria"`
 		DueDate            string   `json:"due_date"`
 		Labels             []string `json:"labels"`
+		Branch             string   `json:"branch"`
+		PRURL              string   `json:"pr_url"`
 	}
 	if err := json.Unmarshal(args, &p); err != nil {
 		return err.Error(), true
@@ -545,7 +547,7 @@ func (s *Server) ticketCreate(args json.RawMessage) (string, bool) {
 		ID: p.ID, SprintID: p.SprintID, Title: p.Title,
 		Description: p.Description, Priority: p.Priority,
 		AcceptanceCriteria: p.AcceptanceCriteria, OwnerAgent: s.agentID,
-		Labels: p.Labels,
+		Labels: p.Labels, Branch: p.Branch, PRURL: p.PRURL,
 	}
 	if p.DueDate != "" {
 		due, err := time.Parse(time.RFC3339, p.DueDate)
@@ -739,6 +741,8 @@ func ticketCreateSchema() map[string]interface{} {
 			"description":         map[string]string{"type": "string", "description": "Detailed description"},
 			"priority":            map[string]string{"type": "integer", "description": "Priority (0-10, higher is more important)"},
 			"acceptance_criteria": map[string]string{"type": "string", "description": "Acceptance criteria"},
+			"branch":              map[string]string{"type": "string", "description": "Git branch for this ticket (e.g. feat/<ticket-id>-<scope>)"},
+			"pr_url":              map[string]string{"type": "string", "description": "Pull request URL once opened"},
 		},
 		"required": []string{"id", "title"},
 	}
@@ -901,6 +905,8 @@ func (s *Server) taskComplete(args json.RawMessage) (string, bool) {
 		TicketID string `json:"ticket_id"`
 		AgentID  string `json:"agent_id"`
 		Evidence string `json:"evidence"`
+		Branch   string `json:"branch"`
+		PRURL    string `json:"pr_url"`
 	}
 	if err := json.Unmarshal(args, &p); err != nil {
 		return err.Error(), true
@@ -908,7 +914,7 @@ func (s *Server) taskComplete(args json.RawMessage) (string, bool) {
 	if p.AgentID == "" {
 		p.AgentID = s.agentID
 	}
-	if err := s.store.CompleteTicket(p.TicketID, p.AgentID, p.Evidence); err != nil {
+	if err := s.store.CompleteTicket(p.TicketID, p.AgentID, p.Evidence, p.Branch, p.PRURL); err != nil {
 		return err.Error(), true
 	}
 	s.notify("ticket_completed", map[string]any{
@@ -1005,7 +1011,9 @@ func taskCompleteSchema() map[string]interface{} {
 		"properties": map[string]interface{}{
 			"ticket_id": map[string]string{"type": "string", "description": "Ticket ID to complete"},
 			"agent_id":  map[string]string{"type": "string", "description": "Agent ID (defaults to auto-detected)"},
-			"evidence":  map[string]string{"type": "string", "description": "Completion evidence (commit SHA, test output)"},
+			"evidence":  map[string]string{"type": "string", "description": "Completion evidence (commit SHA, test output, PR URL)"},
+			"branch":    map[string]string{"type": "string", "description": "Git branch pushed for this ticket"},
+			"pr_url":    map[string]string{"type": "string", "description": "Pull request URL for this ticket"},
 		},
 		"required": []string{"ticket_id"},
 	}

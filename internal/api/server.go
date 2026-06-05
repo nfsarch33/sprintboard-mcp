@@ -434,12 +434,14 @@ func (s *Server) handleTicketComplete(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		AgentID  string `json:"agent_id"`
 		Evidence string `json:"evidence"`
+		Branch   string `json:"branch"`
+		PRURL    string `json:"pr_url"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	if err := s.store.CompleteTicket(id, req.AgentID, req.Evidence); err != nil {
+	if err := s.store.CompleteTicket(id, req.AgentID, req.Evidence, req.Branch, req.PRURL); err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}

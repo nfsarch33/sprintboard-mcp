@@ -36,6 +36,12 @@ func (s *Store) PublishHandoff(h CoordinationHandoff) (int64, error) {
 
 	id, _ := res.LastInsertId()
 
+	if h.Branch != "" {
+		if err := s.updateTicketBranch(h.TicketID, h.Branch); err != nil {
+			return 0, fmt.Errorf("persist branch: %w", err)
+		}
+	}
+
 	if err := bridgeToMem0(h); err != nil {
 		fmt.Fprintf(os.Stderr, "mem0 bridge failed (non-fatal): %v\n", err)
 	}

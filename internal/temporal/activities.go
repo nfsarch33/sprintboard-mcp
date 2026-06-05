@@ -35,7 +35,7 @@ func (a *Activities) ClaimTicketActivity(_ context.Context, ticketID, agentID st
 }
 
 func (a *Activities) CompleteTicketActivity(_ context.Context, ticketID, agentID, evidence string) error {
-	return a.Store.CompleteTicket(ticketID, agentID, evidence)
+	return a.Store.CompleteTicket(ticketID, agentID, evidence, "", "")
 }
 
 func (a *Activities) HeartbeatActivity(_ context.Context, ticketID, agentID string) error {
@@ -56,10 +56,10 @@ func (a *Activities) HandoffActivity(_ context.Context, input HandoffInput) erro
 // Free functions used as activity references in workflow registration.
 // They delegate to the Activities struct methods when executed by the worker.
 var (
-	ActivateSprint        = "ActivateSprint"
-	CloseSprint           = "CloseSprint"
-	ClaimTicketActivity   = "ClaimTicketActivity"
+	ActivateSprint         = "ActivateSprint"
+	CloseSprint            = "CloseSprint"
+	ClaimTicketActivity    = "ClaimTicketActivity"
 	CompleteTicketActivity = "CompleteTicketActivity"
-	HeartbeatActivity     = "HeartbeatActivity"
-	HandoffActivity       = "HandoffActivity"
+	HeartbeatActivity      = "HeartbeatActivity"
+	HandoffActivity        = "HandoffActivity"
 )
