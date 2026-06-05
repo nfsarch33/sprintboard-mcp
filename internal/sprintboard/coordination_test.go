@@ -8,6 +8,35 @@ import (
 	"time"
 )
 
+func TestPublishHandoff_PersistsBranchOnTicket(t *testing.T) {
+	s := testStore(t)
+
+	s.CreateSprint(Sprint{ID: "S1", Name: "test"})
+	s.CreateTicket(Ticket{ID: "T1", SprintID: "S1", Title: "task"})
+
+	id, err := s.PublishHandoff(CoordinationHandoff{
+		TicketID:  "T1",
+		FromAgent: "cursor-parent",
+		ToAgent:   "claude-code",
+		Summary:   "Sprint v5026 ready for pickup",
+		Branch:    "feat/v5026-pickup",
+	})
+	if err != nil {
+		t.Fatalf("PublishHandoff: %v", err)
+	}
+	if id == 0 {
+		t.Error("expected non-zero handoff ID")
+	}
+
+	got, err := s.GetTicket("T1")
+	if err != nil {
+		t.Fatalf("GetTicket: %v", err)
+	}
+	if got.Branch != "feat/v5026-pickup" {
+		t.Errorf("branch = %q, want feat/v5026-pickup", got.Branch)
+	}
+}
+
 func TestPublishHandoff(t *testing.T) {
 	s := testStore(t)
 

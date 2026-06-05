@@ -74,9 +74,9 @@ func TestSprintVelocity(t *testing.T) {
 	s.ClaimTicket("T-V2", "fast-agent")
 	s.ClaimTicket("T-V3", "slow-agent")
 
-	s.CompleteTicket("T-V1", "fast-agent", "done")
-	s.CompleteTicket("T-V2", "fast-agent", "done")
-	s.CompleteTicket("T-V3", "slow-agent", "done")
+	s.CompleteTicket("T-V1", "fast-agent", "done", "", "")
+	s.CompleteTicket("T-V2", "fast-agent", "done", "", "")
+	s.CompleteTicket("T-V3", "slow-agent", "done", "", "")
 
 	vel, err := s.SprintVelocity("S-VEL")
 	if err != nil {
@@ -117,10 +117,10 @@ func TestSprintBurndown(t *testing.T) {
 	s.RegisterAgent(Agent{ID: "burn-agent", Surface: "test"})
 
 	s.ClaimTicket("T-B1", "burn-agent")
-	s.CompleteTicket("T-B1", "burn-agent", "done")
+	s.CompleteTicket("T-B1", "burn-agent", "done", "", "")
 
 	s.ClaimTicket("T-B2", "burn-agent")
-	s.CompleteTicket("T-B2", "burn-agent", "done")
+	s.CompleteTicket("T-B2", "burn-agent", "done", "", "")
 
 	points, err := s.SprintBurndown("S-BURN")
 	if err != nil {

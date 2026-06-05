@@ -109,7 +109,7 @@ func TestCompleteTicket_SetsCompletedAt(t *testing.T) {
 	s.ClaimTicket("T-COMP", "claude-code")
 
 	before := time.Now().Add(-2 * time.Second)
-	if err := s.CompleteTicket("T-COMP", "claude-code", "evidence-sha:abc"); err != nil {
+	if err := s.CompleteTicket("T-COMP", "claude-code", "evidence-sha:abc", "", ""); err != nil {
 		t.Fatalf("CompleteTicket: %v", err)
 	}
 	got, _ := s.GetTicket("T-COMP")
@@ -304,7 +304,7 @@ func TestCompleteTicket_PersistsTimeToCompleteMS(t *testing.T) {
 		t.Fatalf("rewrite claimed_at: %v", err)
 	}
 
-	if err := s.CompleteTicket("T-8000-COMPLETE-MS", "claude-code", "tests green"); err != nil {
+	if err := s.CompleteTicket("T-8000-COMPLETE-MS", "claude-code", "tests green", "", ""); err != nil {
 		t.Fatalf("CompleteTicket: %v", err)
 	}
 
