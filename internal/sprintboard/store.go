@@ -268,7 +268,10 @@ func (s *Store) migrate() error {
 	if err := s.migrateV17600GoalsItems(); err != nil {
 		return err
 	}
-	return s.migrateProvenance()
+	if err := s.migrateProvenance(); err != nil {
+		return err
+	}
+	return s.migrateFleetReportSnapshots()
 }
 
 // migrateExtensions adds v7800-B3 mini-jira fields (due_date, labels JSON,
