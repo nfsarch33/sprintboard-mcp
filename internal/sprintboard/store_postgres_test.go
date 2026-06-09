@@ -254,3 +254,30 @@ func TestOpenPostgres_BadDSN(t *testing.T) {
 		t.Fatal("expected error for unreachable PG, got nil")
 	}
 }
+
+func TestInsertTerminalSessionEvent_Postgres(t *testing.T) {
+	baseDSN := pgTestDSN(t)
+	dsn, cleanup := pgIsolatedDSN(t, baseDSN)
+	defer cleanup()
+
+	store, err := OpenPostgres(dsn)
+	if err != nil {
+		t.Fatalf("OpenPostgres: %v", err)
+	}
+	defer store.Close()
+
+	id, err := store.InsertTerminalSessionEvent(TerminalSessionEvent{
+		Host:         "wsl1",
+		SessionID:    "pg-probe",
+		CommandClass: "curl",
+		DurationMs:   1,
+		Status:       "ok",
+		Payload:      map[string]string{"rca": "insertReturningID"},
+	})
+	if err != nil {
+		t.Fatalf("InsertTerminalSessionEvent: %v", err)
+	}
+	if id <= 0 {
+		t.Fatalf("expected positive id, got %d", id)
+	}
+}

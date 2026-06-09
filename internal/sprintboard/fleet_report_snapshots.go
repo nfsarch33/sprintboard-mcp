@@ -72,17 +72,13 @@ func (s *Store) InsertFleetReportSnapshot(snap FleetReportSnapshot) (int64, erro
 		snap.CreatedAt = now
 	}
 
-	res, err := s.db.Exec(
+	return s.insertReturningID(
 		`INSERT INTO fleet_report_snapshots (host, report_kind, window_start, window_end, payload, created_at)
 		 VALUES (?, ?, ?, ?, ?, ?)`,
 		snap.Host, snap.ReportKind,
 		formatTime(snap.WindowStart), formatTime(snap.WindowEnd),
 		string(payloadJSON), formatTime(snap.CreatedAt),
 	)
-	if err != nil {
-		return 0, err
-	}
-	return res.LastInsertId()
 }
 
 // GetFleetReportSnapshot returns a snapshot by id.

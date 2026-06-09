@@ -84,16 +84,12 @@ func (s *Store) InsertFleetPROutcome(row FleetPROutcome) (int64, error) {
 		row.CreatedAt = now
 	}
 
-	res, err := s.db.Exec(
+	return s.insertReturningID(
 		`INSERT INTO fleet_pr_outcomes (host, repo, pr_number, outcome, verdict, reviewer_agent, merge_sha, payload, recorded_at, created_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		row.Host, row.Repo, row.PRNumber, row.Outcome, row.Verdict, row.ReviewerAgent, row.MergeSHA,
 		string(payloadJSON), formatTime(row.RecordedAt), formatTime(row.CreatedAt),
 	)
-	if err != nil {
-		return 0, err
-	}
-	return res.LastInsertId()
 }
 
 // GetFleetPROutcome returns one outcome by id.
