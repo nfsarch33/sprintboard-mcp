@@ -277,7 +277,10 @@ func (s *Store) migrate() error {
 	if err := s.migrateTerminalSessionEvents(); err != nil {
 		return err
 	}
-	return s.migrateEvalRunSnapshots()
+	if err := s.migrateEvalRunSnapshots(); err != nil {
+		return err
+	}
+	return s.migrateFleetPROutcomes()
 }
 
 // migrateExtensions adds v7800-B3 mini-jira fields (due_date, labels JSON,

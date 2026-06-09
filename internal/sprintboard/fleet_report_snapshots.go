@@ -102,3 +102,36 @@ func (s *Store) GetFleetReportSnapshot(id int64) (FleetReportSnapshot, error) {
 	snap.PayloadJSON = []byte(nullString(payload))
 	return snap, nil
 }
+
+// ListFleetReportSnapshots returns snapshots with window_end >= since, newest first.
+func (s *Store) ListFleetReportSnapshots(host string, since time.Time) ([]FleetReportSnapshot, error) {
+	query := `SELECT id, host, report_kind, window_start, window_end, payload, created_at
+		FROM fleet_report_snapshots WHERE window_end >= ?`
+	args := []any{formatTime(since)}
+	if host != "" {
+		query += ` AND host = ?`
+		args = append(args, host)
+	}
+	query += ` ORDER BY window_end DESC`
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []FleetReportSnapshot
+	for rows.Next() {
+		var snap FleetReportSnapshot
+		var windowStart, windowEnd, createdAt, payload sql.NullString
+		if err := rows.Scan(&snap.ID, &snap.Host, &snap.ReportKind, &windowStart, &windowEnd, &payload, &createdAt); err != nil {
+			return nil, err
+		}
+		snap.WindowStart = parseTime(nullString(windowStart))
+		snap.WindowEnd = parseTime(nullString(windowEnd))
+		snap.CreatedAt = parseTime(nullString(createdAt))
+		snap.PayloadJSON = []byte(nullString(payload))
+		out = append(out, snap)
+	}
+	return out, rows.Err()
+}

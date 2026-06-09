@@ -94,6 +94,9 @@ func (s *Server) routes() {
 	// fleet stats persistence (Melbourne Phase 3 Part B / fleet-stats-extend)
 	s.mux.HandleFunc("POST /api/v1/terminal-sessions/events", s.handleTerminalSessionEventCreate)
 	s.mux.HandleFunc("POST /api/v1/eval-runs/snapshots", s.handleEvalRunSnapshotCreate)
+	// Phase 5: unified history + PR outcomes (pr-review poll wire target)
+	s.mux.HandleFunc("GET /api/v1/fleet-stats/history", s.handleFleetStatsHistory)
+	s.mux.HandleFunc("POST /api/v1/fleet-pr-outcomes", s.handleFleetPROutcomeCreate)
 }
 
 // T-8800-B13: sprint templates ---------------------------------------------

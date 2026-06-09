@@ -109,3 +109,39 @@ func (s *Store) GetTerminalSessionEvent(id int64) (TerminalSessionEvent, error) 
 	ev.PayloadJSON = []byte(nullString(payload))
 	return ev, nil
 }
+
+// ListTerminalSessionEvents returns events with created_at >= since, newest first.
+func (s *Store) ListTerminalSessionEvents(host string, since time.Time) ([]TerminalSessionEvent, error) {
+	query := `SELECT id, host, session_id, command_class, exit_code, duration_ms, status, payload, created_at
+		FROM terminal_session_events WHERE created_at >= ?`
+	args := []any{formatTime(since)}
+	if host != "" {
+		query += ` AND host = ?`
+		args = append(args, host)
+	}
+	query += ` ORDER BY created_at DESC`
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []TerminalSessionEvent
+	for rows.Next() {
+		var ev TerminalSessionEvent
+		var createdAt, payload sql.NullString
+		var exitCode sql.NullInt64
+		if err := rows.Scan(&ev.ID, &ev.Host, &ev.SessionID, &ev.CommandClass, &exitCode, &ev.DurationMs, &ev.Status, &payload, &createdAt); err != nil {
+			return nil, err
+		}
+		if exitCode.Valid {
+			code := int(exitCode.Int64)
+			ev.ExitCode = &code
+		}
+		ev.CreatedAt = parseTime(nullString(createdAt))
+		ev.PayloadJSON = []byte(nullString(payload))
+		out = append(out, ev)
+	}
+	return out, rows.Err()
+}
