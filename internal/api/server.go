@@ -91,6 +91,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/v1/sprints/{id}/metrics", s.handleSprintMetrics)
 	// fleet report persistence (ADR-073 / Melbourne Phase 2 C4)
 	s.mux.HandleFunc("POST /api/v1/fleet-reports/snapshots", s.handleFleetReportSnapshotCreate)
+	// fleet stats persistence (Melbourne Phase 3 Part B / fleet-stats-extend)
+	s.mux.HandleFunc("POST /api/v1/terminal-sessions/events", s.handleTerminalSessionEventCreate)
+	s.mux.HandleFunc("POST /api/v1/eval-runs/snapshots", s.handleEvalRunSnapshotCreate)
 }
 
 // T-8800-B13: sprint templates ---------------------------------------------
