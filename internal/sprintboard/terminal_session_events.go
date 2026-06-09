@@ -77,16 +77,12 @@ func (s *Store) InsertTerminalSessionEvent(ev TerminalSessionEvent) (int64, erro
 		ev.CreatedAt = now
 	}
 
-	res, err := s.db.Exec(
+	return s.insertReturningID(
 		`INSERT INTO terminal_session_events (host, session_id, command_class, exit_code, duration_ms, status, payload, created_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		ev.Host, ev.SessionID, ev.CommandClass, ev.ExitCode, ev.DurationMs, ev.Status,
 		string(payloadJSON), formatTime(ev.CreatedAt),
 	)
-	if err != nil {
-		return 0, err
-	}
-	return res.LastInsertId()
 }
 
 // GetTerminalSessionEvent returns one event by id.

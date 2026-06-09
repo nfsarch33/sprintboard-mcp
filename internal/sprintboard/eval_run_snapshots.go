@@ -83,16 +83,12 @@ func (s *Store) InsertEvalRunSnapshot(snap EvalRunSnapshot) (int64, error) {
 		snap.CreatedAt = now
 	}
 
-	res, err := s.db.Exec(
+	return s.insertReturningID(
 		`INSERT INTO eval_run_snapshots (host, eval_run_id, suite, model, score, pass_count, fail_count, duration_ms, payload, recorded_at, created_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		snap.Host, snap.EvalRunID, snap.Suite, snap.Model, snap.Score, snap.PassCount, snap.FailCount,
 		snap.DurationMs, string(payloadJSON), formatTime(snap.RecordedAt), formatTime(snap.CreatedAt),
 	)
-	if err != nil {
-		return 0, err
-	}
-	return res.LastInsertId()
 }
 
 // GetEvalRunSnapshot returns one eval snapshot by id.
