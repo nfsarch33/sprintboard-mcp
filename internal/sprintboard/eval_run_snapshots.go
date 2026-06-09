@@ -112,3 +112,36 @@ func (s *Store) GetEvalRunSnapshot(id int64) (EvalRunSnapshot, error) {
 	snap.PayloadJSON = []byte(nullString(payload))
 	return snap, nil
 }
+
+// ListEvalRunSnapshots returns snapshots with recorded_at >= since, newest first.
+func (s *Store) ListEvalRunSnapshots(host string, since time.Time) ([]EvalRunSnapshot, error) {
+	query := `SELECT id, host, eval_run_id, suite, model, score, pass_count, fail_count, duration_ms, payload, recorded_at, created_at
+		FROM eval_run_snapshots WHERE recorded_at >= ?`
+	args := []any{formatTime(since)}
+	if host != "" {
+		query += ` AND host = ?`
+		args = append(args, host)
+	}
+	query += ` ORDER BY recorded_at DESC`
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []EvalRunSnapshot
+	for rows.Next() {
+		var snap EvalRunSnapshot
+		var recordedAt, createdAt, payload sql.NullString
+		if err := rows.Scan(&snap.ID, &snap.Host, &snap.EvalRunID, &snap.Suite, &snap.Model, &snap.Score, &snap.PassCount,
+			&snap.FailCount, &snap.DurationMs, &payload, &recordedAt, &createdAt); err != nil {
+			return nil, err
+		}
+		snap.RecordedAt = parseTime(nullString(recordedAt))
+		snap.CreatedAt = parseTime(nullString(createdAt))
+		snap.PayloadJSON = []byte(nullString(payload))
+		out = append(out, snap)
+	}
+	return out, rows.Err()
+}

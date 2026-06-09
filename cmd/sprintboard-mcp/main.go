@@ -268,6 +268,8 @@ func (s *Server) handleToolsList(req JSONRPCRequest) JSONRPCResponse {
 		{Name: "roadmap_item_list", Description: "List roadmap items for a roadmap, ordered by priority", InputSchema: roadmapItemListSchema()},
 		{Name: "ticket_tree_by_epic", Description: "Epic-rooted ticket tree: all tickets under an epic with parent/child nesting", InputSchema: ticketTreeByEpicSchema()},
 		{Name: "session_handoff_fts", Description: "Full-text search session handoffs (BM25/ts_rank on PostgreSQL, LIKE on SQLite)", InputSchema: sessionHandoffFTSSchema()},
+		// Phase 5: fleet stats history (ADR-073 Tier 2 PG persistence)
+		{Name: "fleet_report_history", Description: "Unified fleet stats history: fleet_report, eval_run, terminal_session, pr_outcome (default 7d)", InputSchema: fleetReportHistorySchema()},
 	}
 	return JSONRPCResponse{JSONRPC: "2.0", ID: req.ID, Result: map[string]interface{}{"tools": tools}}
 }
@@ -425,6 +427,8 @@ func (s *Server) dispatchInner(tool string, args json.RawMessage) (string, bool)
 		return s.ticketTreeByEpic(args)
 	case "session_handoff_fts":
 		return s.sessionHandoffFTS(args)
+	case "fleet_report_history":
+		return s.fleetReportHistory(args)
 	default:
 		return fmt.Sprintf("unknown tool: %s", tool), true
 	}
