@@ -173,7 +173,8 @@ func (s *Store) Close() error {
 }
 
 func (s *Store) Ping() error {
-	return s.db.QueryRow("SELECT 1").Err()
+	var one int
+	return s.db.QueryRow("SELECT 1").Scan(&one)
 }
 
 func (s *Store) migrate() error {
