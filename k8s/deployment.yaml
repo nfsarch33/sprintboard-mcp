@@ -7,6 +7,9 @@ metadata:
     app: sprintboard-api
 spec:
   replicas: 1
+  revisionHistoryLimit: 5
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: sprintboard-api
@@ -15,30 +18,76 @@ spec:
       labels:
         app: sprintboard-api
     spec:
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
       containers:
         - name: sprintboard-api
           image: sprintboard-api:latest
           imagePullPolicy: Never
           ports:
             - containerPort: 9400
+              name: http
           args: ['-addr', ':9400', '-db', '/data/sprintboard.db']
           volumeMounts:
             - name: data
               mountPath: /data
+          startupProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 9400
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 12
           livenessProbe:
             httpGet:
-              path: /api/v1/health
+              path: /healthz
               port: 9400
-            initialDelaySeconds: 5
             periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
           readinessProbe:
             httpGet:
-              path: /api/v1/health
+              path: /healthz
               port: 9400
-            initialDelaySeconds: 3
             periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "500m"
       volumes:
         - name: data
           hostPath:
             path: /tmp/sprintboard-data
             type: DirectoryOrCreate
+---
+# ServiceMonitor for Prometheus (v13910 S5.1). Requires the prometheus
+# operator to be installed in the cluster. The /metrics endpoint is
+# exposed by sprintboard-api and returns Prometheus text format
+# counters. See evidence/sprintboard-mcp-v13910-2026-06-17.md.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: sprintboard-api
+  namespace: cicd
+  labels:
+    app: sprintboard-api
+    release: kube-prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      app: sprintboard-api
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
+  namespaceSelector:
+    matchNames:
+      - cicd
+

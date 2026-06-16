@@ -3,11 +3,15 @@ kind: Service
 metadata:
   name: sprintboard-api
   namespace: cicd
+  labels:
+    app: sprintboard-api
 spec:
   selector:
     app: sprintboard-api
   ports:
-    - port: 9400
+    - name: http
+      port: 9400
       targetPort: 9400
       nodePort: 30940
   type: NodePort
+

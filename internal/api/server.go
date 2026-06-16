@@ -30,10 +30,11 @@ type Server struct {
 	logger   *slog.Logger
 	mux      *http.ServeMux
 	shutting atomic.Bool
+	metrics  *sprintboard.Metrics
 }
 
 func NewServer(store *sprintboard.Store, logger *slog.Logger) *Server {
-	s := &Server{store: store, logger: logger}
+	s := &Server{store: store, logger: logger, metrics: sprintboard.NewMetrics()}
 	s.mux = http.NewServeMux()
 	s.routes()
 	return s
@@ -59,6 +60,7 @@ func (s *Server) SetShuttingDown() { s.shutting.Store(true) }
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /healthz", s.handleHealthz)
 	s.mux.HandleFunc("GET /readyz", s.handleReadyz)
+	s.mux.HandleFunc("GET /metrics", s.handleMetrics)
 	s.mux.HandleFunc("GET /api/v1/health", s.handleHealth)
 	s.mux.HandleFunc("POST /api/v1/sprints", s.handleSprintCreate)
 	s.mux.HandleFunc("GET /api/v1/sprints/{id}", s.handleSprintStatus)
@@ -216,6 +218,7 @@ func (s *Server) handleTicketCommentAdd(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
+	s.metrics.IncCommentsAdded()
 	writeJSON(w, http.StatusCreated, c)
 }
 
@@ -274,6 +277,13 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 		"service": "sprintboard-api",
 		"version": "1.0.0",
 	})
+}
+
+// handleMetrics emits Prometheus text format. v13910 S5.1.
+func (s *Server) handleMetrics(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_ = s.metrics.WritePrometheus(w)
 }
 
 func (s *Server) handleSprintCreate(w http.ResponseWriter, r *http.Request) {
@@ -371,6 +381,7 @@ func (s *Server) handleTicketCreate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, err)
 		return
 	}
+	s.metrics.IncTicketsCreated()
 	writeJSON(w, http.StatusCreated, map[string]string{"id": req.ID, "status": "created"})
 }
 
@@ -429,6 +440,9 @@ func (s *Server) handleTicketClaim(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
+	if result.Success {
+		s.metrics.IncTicketsClaimed()
+	}
 	status := http.StatusOK
 	if !result.Success {
 		status = http.StatusConflict
@@ -453,6 +467,7 @@ func (s *Server) handleTicketComplete(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
+	s.metrics.IncTicketsCompleted()
 	writeJSON(w, http.StatusOK, map[string]string{"id": id, "status": "done"})
 }
 
@@ -492,6 +507,7 @@ func (s *Server) handleAgentRegister(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
+	s.metrics.IncAgentsRegistered()
 	writeJSON(w, http.StatusCreated, map[string]string{"agent_id": req.AgentID, "status": "registered"})
 }
 
@@ -522,6 +538,7 @@ func (s *Server) handleHandoffPublish(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
+	s.metrics.IncHandoffsPublished()
 	writeJSON(w, http.StatusCreated, map[string]interface{}{"handoff_id": id, "status": "published"})
 }
 

@@ -3,3 +3,5 @@
 /sprintboard-mcp
 /sprintboard-migrate
 /sprintboard-worker
+# v13910 S5.1 build artefact
+/sprintboard-cli
