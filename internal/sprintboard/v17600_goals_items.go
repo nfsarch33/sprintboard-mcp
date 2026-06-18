@@ -79,7 +79,7 @@ func (s *Store) CreateSprintGoal(g SprintGoal) (int64, error) {
 	}
 	now := time.Now().Format(time.RFC3339)
 
-	res, err := s.db.Exec(
+	id, err := s.insertReturningID(
 		`INSERT INTO sprint_goals (sprint_id, goal_text, status, priority, created_at)
 		 VALUES (?, ?, ?, ?, ?)`,
 		g.SprintID, g.GoalText, g.Status, g.Priority, now,
@@ -87,7 +87,7 @@ func (s *Store) CreateSprintGoal(g SprintGoal) (int64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("create sprint goal: %w", err)
 	}
-	return res.LastInsertId()
+	return id, nil
 }
 
 func (s *Store) ListSprintGoals(sprintID string) ([]SprintGoal, error) {
@@ -143,7 +143,7 @@ func (s *Store) CreateRoadmapItem(item RoadmapItem) (int64, error) {
 	}
 	now := time.Now().Format(time.RFC3339)
 
-	res, err := s.db.Exec(
+	id, err := s.insertReturningID(
 		`INSERT INTO roadmap_items (roadmap_id, epic_id, title, description, status, priority, created_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		item.RoadmapID, nilIfEmpty(item.EpicID), item.Title, item.Description, item.Status, item.Priority, now,
@@ -151,7 +151,7 @@ func (s *Store) CreateRoadmapItem(item RoadmapItem) (int64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("create roadmap item: %w", err)
 	}
-	return res.LastInsertId()
+	return id, nil
 }
 
 func (s *Store) ListRoadmapItems(roadmapID string) ([]RoadmapItem, error) {
