@@ -25,7 +25,7 @@ func (s *Store) PublishHandoff(h CoordinationHandoff) (int64, error) {
 		h.CreatedAt = now
 	}
 
-	res, err := s.db.Exec(
+	id, err := s.insertReturningID(
 		`INSERT INTO handoffs (ticket_id, from_agent, to_agent, context_path, created_at)
 		 VALUES (?, ?, ?, ?, ?)`,
 		h.TicketID, h.FromAgent, h.ToAgent, h.Summary, formatTime(h.CreatedAt),
@@ -33,8 +33,6 @@ func (s *Store) PublishHandoff(h CoordinationHandoff) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-
-	id, _ := res.LastInsertId()
 
 	if h.Branch != "" {
 		if err := s.updateTicketBranch(h.TicketID, h.Branch); err != nil {

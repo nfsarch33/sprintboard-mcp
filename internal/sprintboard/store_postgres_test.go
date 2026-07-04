@@ -255,6 +255,64 @@ func TestOpenPostgres_BadDSN(t *testing.T) {
 	}
 }
 
+func TestInsertReturningID_CorePaths_Postgres(t *testing.T) {
+	baseDSN := pgTestDSN(t)
+	dsn, cleanup := pgIsolatedDSN(t, baseDSN)
+	defer cleanup()
+
+	store, err := OpenPostgres(dsn)
+	if err != nil {
+		t.Fatalf("OpenPostgres: %v", err)
+	}
+	defer store.Close()
+
+	sprintID := "pg-insert-" + t.Name()
+	if err := store.CreateSprint(Sprint{ID: sprintID, Name: "PG insert smoke", Status: SprintActive}); err != nil {
+		t.Fatalf("CreateSprint: %v", err)
+	}
+	ticketID := "tkt-pg-insert"
+	if err := store.CreateTicket(Ticket{
+		ID:       ticketID,
+		SprintID: sprintID,
+		Title:    "PG insert ticket",
+		Status:   StatusReady,
+	}); err != nil {
+		t.Fatalf("CreateTicket: %v", err)
+	}
+
+	goalID, err := store.CreateSprintGoal(SprintGoal{
+		SprintID: sprintID,
+		GoalText: "ship PG inserts",
+	})
+	if err != nil {
+		t.Fatalf("CreateSprintGoal: %v", err)
+	}
+	if goalID <= 0 {
+		t.Fatalf("CreateSprintGoal id = %d, want > 0", goalID)
+	}
+
+	handoffID, err := store.PublishHandoff(CoordinationHandoff{
+		TicketID:  ticketID,
+		FromAgent: "agent-a",
+		ToAgent:   "agent-b",
+		Summary:   "pg insert smoke",
+	})
+	if err != nil {
+		t.Fatalf("PublishHandoff: %v", err)
+	}
+	if handoffID <= 0 {
+		t.Fatalf("PublishHandoff id = %d, want > 0", handoffID)
+	}
+
+	comment, err := store.AddTicketComment(ticketID, "agent-a", "pg comment smoke")
+	if err != nil {
+		t.Fatalf("AddTicketComment: %v", err)
+	}
+	if comment.ID <= 0 {
+		t.Fatalf("AddTicketComment id = %d, want > 0", comment.ID)
+	}
+}
+
 func TestInsertTerminalSessionEvent_Postgres(t *testing.T) {
 	baseDSN := pgTestDSN(t)
 	dsn, cleanup := pgIsolatedDSN(t, baseDSN)

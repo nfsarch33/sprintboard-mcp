@@ -51,17 +51,13 @@ func (s *Store) AddTicketComment(ticketID, author, body string) (TicketComment, 
 	}
 
 	now := time.Now()
-	res, err := s.db.Exec(
+	id, err := s.insertReturningID(
 		`INSERT INTO ticket_comments (ticket_id, author, body, created_at)
 		 VALUES (?, ?, ?, ?)`,
 		ticketID, author, body, formatTime(now),
 	)
 	if err != nil {
 		return TicketComment{}, fmt.Errorf("insert ticket_comment: %w", err)
-	}
-	id, err := res.LastInsertId()
-	if err != nil {
-		return TicketComment{}, fmt.Errorf("last insert id: %w", err)
 	}
 	return TicketComment{
 		ID:        id,
