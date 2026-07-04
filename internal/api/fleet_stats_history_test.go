@@ -39,7 +39,7 @@ func TestFleetPROutcomeCreateAndHistory(t *testing.T) {
 		"verdict": "pass",
 		"reviewer_agent": "fleet-pr-reviewer",
 		"merge_sha": "deadbeef",
-		"recorded_at": "2026-06-09T14:00:00Z",
+		"recorded_at": "2026-07-04T14:00:00Z",
 		"payload": {"checks_url": "https://example/ci"}
 	}`
 	resp := postJSON(t, ts.URL+"/api/v1/fleet-pr-outcomes", body)
