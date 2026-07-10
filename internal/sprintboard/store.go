@@ -172,8 +172,19 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
+// Ping verifies the database is reachable. v14597: must explicitly Scan() or
+// Close() the *Rows returned by QueryRow, otherwise the connection leaks
+// (single-conn pool per SetMaxOpenConns(1)) and subsequent calls hang.
 func (s *Store) Ping() error {
-	return s.db.QueryRow("SELECT 1").Err()
+	var n int
+	row := s.db.QueryRow("SELECT 1")
+	if err := row.Scan(&n); err != nil {
+		return err
+	}
+	if n != 1 {
+		return fmt.Errorf("ping returned %d, expected 1", n)
+	}
+	return nil
 }
 
 func (s *Store) migrate() error {
