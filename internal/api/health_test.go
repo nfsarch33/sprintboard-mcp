@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"time"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -95,5 +96,33 @@ func TestStorePing(t *testing.T) {
 	store := testStore(t)
 	if err := store.Ping(); err != nil {
 		t.Fatalf("ping failed: %v", err)
+	}
+}
+
+
+// TestHandleHealthz_RepeatedCallsNoLeak (v14597, closes CF-v14590-01)
+// proves that calling /healthz repeatedly does NOT leak the SQLite
+// connection. The previous implementation used `s.db.QueryRow().Err()`
+// which leaks the underlying *Rows when Scan() is not called, eventually
+// hanging subsequent requests behind the single conn in SetMaxOpenConns(1).
+func TestHandleHealthz_RepeatedCallsNoLeak(t *testing.T) {
+	t.Parallel()
+	srv := testServer(t)
+	for i := 0; i < 20; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+		w := httptest.NewRecorder()
+		done := make(chan struct{})
+		go func() {
+			srv.Handler().ServeHTTP(w, req)
+			close(done)
+		}()
+		select {
+		case <-done:
+			if w.Code != http.StatusOK {
+				t.Fatalf("iter %d: expected 200, got %d", i, w.Code)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("iter %d: /healthz hung (likely Ping() Rows leak)", i)
+		}
 	}
 }
