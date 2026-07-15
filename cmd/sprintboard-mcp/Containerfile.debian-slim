@@ -1,0 +1,62 @@
+# syntax=docker/dockerfile:1.7
+#
+# Containerfile for sprintboard-mcp (v14886: distroless decommission)
+# Source: github.com/nfsarch33/sprintboard-mcp/cmd/sprintboard-mcp
+#
+# Migrates from gcr.io/distroless/base-debian12:nonroot
+# to debian:bookworm-slim + tini. Pure stdio JSON-RPC; we
+# still need tini in case the MCP client catches a Ctrl-C
+# from a controlling terminal.
+#
+# CGO_ENABLED=1 because of modernc.org/sqlite.
+
+#####################
+# Stage 1: Go builder
+#####################
+FROM golang:1.25-bookworm AS builder
+
+WORKDIR /build
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/root/go/pkg/mod \
+    go mod download
+
+COPY . .
+
+ARG VERSION=dev
+
+ENV CGO_ENABLED=1
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" \
+        -o /out/sprintboard-mcp ./cmd/sprintboard-mcp
+
+#####################
+# Stage 2: Runtime
+#####################
+FROM debian:bookworm-slim
+
+LABEL org.opencontainers.image.title="sprintboard-mcp" \
+      org.opencontainers.image.description="SprintBoard MCP stdio server (Helixon)" \
+      org.opencontainers.image.source="https://github.com/nfsarch33/sprintboard-mcp" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      helixon.security.distroless-free=true \
+      io.helixon.sprint="v14886" \
+      io.helixon.service="sprintboard-mcp"
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        tini \
+        tzdata \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /out/sprintboard-mcp /usr/local/bin/sprintboard-mcp
+
+RUN groupadd --system --gid 1000 helixon \
+    && useradd  --system --uid 1000 --gid helixon helixon
+
+USER helixon:helixon
+# No EXPOSE — stdio only.
+
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["/usr/local/bin/sprintboard-mcp"]

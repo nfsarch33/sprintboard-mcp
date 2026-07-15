@@ -1,0 +1,70 @@
+# syntax=docker/dockerfile:1.7
+#
+# Containerfile for sprintboard-api (v14886: distroless decommission)
+# Source: github.com/nfsarch33/sprintboard-mcp/cmd/sprintboard-api
+#
+# Migrates from gcr.io/distroless/base-debian12:nonroot
+# to debian:bookworm-slim + tini for proper PID 1 signal
+# handling. CGO_ENABLED=1 (modernc.org/sqlite); debian-slim
+# provides glibc which is required for CGO to resolve at
+# container start.
+#
+# Migration pattern: evidence/v14884-distroless-sweep
+
+#####################
+# Stage 1: Go builder
+#####################
+FROM golang:1.25-bookworm AS builder
+
+WORKDIR /build
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/root/go/pkg/mod \
+    go mod download
+
+COPY . .
+
+ARG VERSION=dev
+
+ENV CGO_ENABLED=1
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" \
+        -o /out/sprintboard-api ./cmd/sprintboard-api
+
+#####################
+# Stage 2: Runtime (debian-slim + tini)
+#####################
+FROM debian:bookworm-slim
+
+LABEL org.opencontainers.image.title="sprintboard-api" \
+      org.opencontainers.image.description="SprintBoard API (Helixon fleet central) — debian-slim runtime" \
+      org.opencontainers.image.source="https://github.com/nfsarch33/sprintboard-mcp" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      helixon.security.distroless-free=true \
+      io.helixon.sprint="v14886" \
+      io.helixon.service="sprintboard-api"
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        tini \
+        tzdata \
+    && rm -rf /var/lib/apt/lists/* \
+    && update-ca-certificates
+
+COPY --from=builder /out/sprintboard-api /usr/local/bin/sprintboard-api
+
+# Nonroot user
+RUN groupadd --system --gid 1000 helixon \
+    && useradd  --system --uid 1000 --gid helixon helixon \
+    && mkdir -p /var/lib/sprintboard \
+    && chown -R helixon:helixon /var/lib/sprintboard
+
+USER helixon:helixon
+VOLUME ["/var/lib/sprintboard"]
+EXPOSE 9400
+
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["/usr/local/bin/sprintboard-api", \
+     "-addr", ":9400", \
+     "-db",   "/var/lib/sprintboard/sprintboard.db"]
