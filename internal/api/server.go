@@ -301,10 +301,12 @@ func (s *Server) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 func (s *Server) handleSprintCreate(w http.ResponseWriter, r *http.Request) {
 	defer drainAndClose(r)
 	var req struct {
-		ID     string `json:"id"`
-		Name   string `json:"name"`
-		Theme  string `json:"theme,omitempty"`
-		Status string `json:"status,omitempty"`
+		ID         string `json:"id"`
+		Name       string `json:"name"`
+		Theme      string `json:"theme,omitempty"`
+		Status     string `json:"status,omitempty"`
+		OwnerAgent string `json:"owner_agent,omitempty"` // v18685-2: created_by_agent audit
+		TenantID   string `json:"tenant_id,omitempty"`   // v18685-2: multi-tenancy
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
@@ -315,9 +317,11 @@ func (s *Server) handleSprintCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sp := sprintboard.Sprint{
-		ID:    req.ID,
-		Name:  req.Name,
-		Theme: req.Theme,
+		ID:         req.ID,
+		Name:       req.Name,
+		Theme:      req.Theme,
+		OwnerAgent: req.OwnerAgent,
+		TenantID:   req.TenantID,
 	}
 	if req.Status != "" {
 		sp.Status = sprintboard.SprintStatus(req.Status)
