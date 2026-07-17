@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -40,6 +41,7 @@ type Sprint struct {
 	StartAt    time.Time    `json:"start_at,omitempty"`
 	EndAt      time.Time    `json:"end_at,omitempty"`
 	CreatedAt  time.Time    `json:"created_at"`
+	TenantID   string       `json:"tenant_id,omitempty"` // v18680-3: multi-tenancy
 }
 
 type Ticket struct {
@@ -62,6 +64,7 @@ type Ticket struct {
 	MergedAt           time.Time    `json:"merged_at,omitempty"`
 	CreatedAt          time.Time    `json:"created_at"`
 	UpdatedAt          time.Time    `json:"updated_at"`
+	TenantID           string       `json:"tenant_id,omitempty"` // v18680-3: multi-tenancy
 }
 
 type Transition struct {
@@ -259,7 +262,10 @@ func (s *Store) migrate() error {
 		return err
 	}
 	if err := s.migrateExtensions(); err != nil {
-		return err
+		return fmt.Errorf("migrate extensions: %w", err)
+	}
+	if err := s.migrateMultiTenancy(); err != nil {
+		return fmt.Errorf("migrate multi-tenancy: %w", err)
 	}
 	if err := s.migrateComments(); err != nil {
 		return err
@@ -314,6 +320,24 @@ func (s *Store) migrateExtensions() error {
 	return nil
 }
 
+// migrateMultiTenancy (v18680-3) adds tenant_id to sprints and tickets.
+// Empty string means "global / un-tenanted" (backward-compatible for callers
+// that haven't migrated to tenant-aware flows yet).
+func (s *Store) migrateMultiTenancy() error {
+	stmts := []string{
+		`ALTER TABLE sprints ADD COLUMN tenant_id TEXT`,
+		`ALTER TABLE tickets ADD COLUMN tenant_id TEXT`,
+		`CREATE INDEX IF NOT EXISTS idx_sprints_tenant ON sprints(tenant_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_tickets_tenant ON tickets(tenant_id)`,
+	}
+	for _, stmt := range stmts {
+		if _, err := s.db.Exec(stmt); err != nil && !isAlterColumnExists(err) {
+			return fmt.Errorf("migrate multi-tenancy: %w", err)
+		}
+	}
+	return nil
+}
+
 func (s *Store) CreateSprint(sp Sprint) error {
 	if sp.CreatedAt.IsZero() {
 		sp.CreatedAt = time.Now()
@@ -323,16 +347,17 @@ func (s *Store) CreateSprint(sp Sprint) error {
 	}
 
 	_, err := s.db.Exec(
-		`INSERT INTO sprints (id, name, status, owner_agent, theme, start_at, end_at, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO sprints (id, name, status, owner_agent, theme, start_at, end_at, created_at, tenant_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		sp.ID, sp.Name, sp.Status, sp.OwnerAgent, sp.Theme,
 		formatTime(sp.StartAt), formatTime(sp.EndAt), formatTime(sp.CreatedAt),
+		sp.TenantID,
 	)
 	return err
 }
 
 func (s *Store) ListSprints() ([]Sprint, error) {
-	rows, err := s.db.Query(`SELECT id, name, status, owner_agent, theme, start_at, end_at, created_at FROM sprints ORDER BY created_at DESC`)
+	rows, err := s.db.Query(`SELECT id, name, status, owner_agent, theme, tenant_id, start_at, end_at, created_at FROM sprints ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -341,13 +366,14 @@ func (s *Store) ListSprints() ([]Sprint, error) {
 	var sprints []Sprint
 	for rows.Next() {
 		var sp Sprint
-		var ownerAgent, theme, startAt, endAt, createdAt sql.NullString
-		err := rows.Scan(&sp.ID, &sp.Name, &sp.Status, &ownerAgent, &theme, &startAt, &endAt, &createdAt)
+		var ownerAgent, theme, tenant, startAt, endAt, createdAt sql.NullString
+		err := rows.Scan(&sp.ID, &sp.Name, &sp.Status, &ownerAgent, &theme, &tenant, &startAt, &endAt, &createdAt)
 		if err != nil {
 			return nil, err
 		}
 		sp.OwnerAgent = nullString(ownerAgent)
 		sp.Theme = nullString(theme)
+		sp.TenantID = nullString(tenant)
 		sp.StartAt = parseTime(startAt.String)
 		sp.EndAt = parseTime(endAt.String)
 		sp.CreatedAt = parseTime(createdAt.String)
@@ -358,15 +384,16 @@ func (s *Store) ListSprints() ([]Sprint, error) {
 
 func (s *Store) GetSprint(id string) (Sprint, error) {
 	var sp Sprint
-	var ownerAgent, theme, startAt, endAt, createdAt sql.NullString
+	var ownerAgent, theme, tenant, startAt, endAt, createdAt sql.NullString
 	err := s.db.QueryRow(
-		`SELECT id, name, status, owner_agent, theme, start_at, end_at, created_at FROM sprints WHERE id = ?`, id,
-	).Scan(&sp.ID, &sp.Name, &sp.Status, &ownerAgent, &theme, &startAt, &endAt, &createdAt)
+		`SELECT id, name, status, owner_agent, theme, tenant_id, start_at, end_at, created_at FROM sprints WHERE id = ?`, id,
+	).Scan(&sp.ID, &sp.Name, &sp.Status, &ownerAgent, &theme, &tenant, &startAt, &endAt, &createdAt)
 	if err != nil {
 		return Sprint{}, fmt.Errorf("sprint %q not found: %w", id, err)
 	}
 	sp.OwnerAgent = nullString(ownerAgent)
 	sp.Theme = nullString(theme)
+	sp.TenantID = nullString(tenant)
 	sp.StartAt = parseTime(startAt.String)
 	sp.EndAt = parseTime(endAt.String)
 	sp.CreatedAt = parseTime(createdAt.String)
@@ -385,19 +412,163 @@ func (s *Store) CreateTicket(t Ticket) error {
 	}
 
 	_, err := s.db.Exec(
-		`INSERT INTO tickets (id, sprint_id, title, description, status, owner_agent, priority, acceptance_criteria, handoff_doc_path, due_date, labels, branch, pr_url, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO tickets (id, sprint_id, title, description, status, owner_agent, priority, acceptance_criteria, handoff_doc_path, due_date, labels, branch, pr_url, created_at, updated_at, tenant_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		t.ID, t.SprintID, t.Title, t.Description, t.Status, t.OwnerAgent,
 		t.Priority, t.AcceptanceCriteria, t.HandoffDocPath,
 		formatTime(t.DueDate), encodeLabels(t.Labels),
 		t.Branch, t.PRURL,
 		formatTime(t.CreatedAt), formatTime(t.UpdatedAt),
+		t.TenantID,
 	)
 	return err
 }
 
+// ListSprintsByTenant returns sprints whose tenant_id matches, or ALL
+// sprints when tenantID is empty. v18680-3.
+func (s *Store) ListSprintsByTenant(tenantID string) ([]Sprint, error) {
+	rows, err := s.querySprintsFiltered(tenantID)
+	if err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+// GetSprintForTenant returns the sprint by id but only if it belongs to
+// tenantID. An empty tenantID allows any tenant (backward-compat). Returns
+// sql.ErrNoRows when the sprint does not exist OR belongs to a different
+// tenant — callers must not leak existence across tenants.
+func (s *Store) GetSprintForTenant(id, tenantID string) (Sprint, error) {
+	if tenantID == "" {
+		return s.GetSprint(id)
+	}
+	var sp Sprint
+	var ownerAgent, theme, tenant, startAt, endAt, createdAt sql.NullString
+	err := s.db.QueryRow(
+		`SELECT id, name, status, owner_agent, theme, tenant_id, start_at, end_at, created_at
+		 FROM sprints WHERE id = ? AND (tenant_id = ? OR tenant_id = '' OR tenant_id IS NULL)`, id, tenantID,
+	).Scan(&sp.ID, &sp.Name, &sp.Status, &ownerAgent, &theme, &tenant, &startAt, &endAt, &createdAt)
+	if err != nil {
+		return Sprint{}, fmt.Errorf("sprint %q not found: %w", id, err)
+	}
+	sp.OwnerAgent = nullString(ownerAgent)
+	sp.Theme = nullString(theme)
+	sp.TenantID = nullString(tenant)
+	sp.StartAt = parseTime(startAt.String)
+	sp.EndAt = parseTime(endAt.String)
+	sp.CreatedAt = parseTime(createdAt.String)
+	return sp, nil
+}
+
+// ListTicketsByTenant returns tickets whose tenant_id matches (or ALL
+// when tenantID is empty). v18680-3.
+func (s *Store) ListTicketsByTenant(sprintID, tenantID string) ([]Ticket, error) {
+	rows, err := s.queryTicketsFiltered(sprintID, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+// GetTicketForTenant returns the ticket by id but only if it belongs to
+// tenantID. Empty tenantID allows any tenant.
+func (s *Store) GetTicketForTenant(id, tenantID string) (Ticket, error) {
+	if tenantID == "" {
+		return s.GetTicket(id)
+	}
+	t, err := s.GetTicket(id)
+	if err != nil {
+		return Ticket{}, err
+	}
+	if t.TenantID != "" && t.TenantID != tenantID {
+		return Ticket{}, fmt.Errorf("ticket %q not found", id)
+	}
+	return t, nil
+}
+
+func (s *Store) querySprintsFiltered(tenantID string) ([]Sprint, error) {
+	q := `SELECT id, name, status, owner_agent, theme, tenant_id, start_at, end_at, created_at FROM sprints`
+	var args []interface{}
+	if tenantID != "" {
+		q += ` WHERE (tenant_id = ? OR tenant_id = '' OR tenant_id IS NULL)`
+		args = append(args, tenantID)
+	}
+	q += ` ORDER BY created_at DESC`
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Sprint
+	for rows.Next() {
+		var sp Sprint
+		var ownerAgent, theme, tenant, startAt, endAt, createdAt sql.NullString
+		if err := rows.Scan(&sp.ID, &sp.Name, &sp.Status, &ownerAgent, &theme, &tenant, &startAt, &endAt, &createdAt); err != nil {
+			return nil, err
+		}
+		sp.OwnerAgent = nullString(ownerAgent)
+		sp.Theme = nullString(theme)
+		sp.TenantID = nullString(tenant)
+		sp.StartAt = parseTime(startAt.String)
+		sp.EndAt = parseTime(endAt.String)
+		sp.CreatedAt = parseTime(createdAt.String)
+		out = append(out, sp)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) queryTicketsFiltered(sprintID, tenantID string) ([]Ticket, error) {
+	q := `SELECT id, sprint_id, title, description, status, owner_agent, priority, acceptance_criteria, handoff_doc_path, due_date, labels, claimed_by, claimed_at, completed_at, branch, pr_url, merged_at, created_at, updated_at, tenant_id FROM tickets`
+	var args []interface{}
+	var where []string
+	if sprintID != "" {
+		where = append(where, "sprint_id = ?")
+		args = append(args, sprintID)
+	}
+	if tenantID != "" {
+		where = append(where, "(tenant_id = ? OR tenant_id = '' OR tenant_id IS NULL)")
+		args = append(args, tenantID)
+	}
+	if len(where) > 0 {
+		q += " WHERE " + strings.Join(where, " AND ")
+	}
+	q += " ORDER BY priority DESC, created_at ASC"
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Ticket
+	for rows.Next() {
+		var t Ticket
+		var createdAt, updatedAt string
+		var sprintID, description, ownerAgent, criteria, handoff, dueDate, labels, claimedBy, claimedAt, completedAt, branch, prURL, mergedAt, tenant sql.NullString
+		if err := rows.Scan(&t.ID, &sprintID, &t.Title, &description, &t.Status, &ownerAgent, &t.Priority, &criteria, &handoff, &dueDate, &labels, &claimedBy, &claimedAt, &completedAt, &branch, &prURL, &mergedAt, &createdAt, &updatedAt, &tenant); err != nil {
+			return nil, err
+		}
+		t.CreatedAt = parseTime(createdAt)
+		t.UpdatedAt = parseTime(updatedAt)
+		t.SprintID = nullString(sprintID)
+		t.Description = nullString(description)
+		t.OwnerAgent = nullString(ownerAgent)
+		t.AcceptanceCriteria = nullString(criteria)
+		t.HandoffDocPath = nullString(handoff)
+		t.DueDate = parseTime(dueDate.String)
+		t.Labels = decodeLabels(nullString(labels))
+		t.ClaimedBy = nullString(claimedBy)
+		t.ClaimedAt = parseTime(claimedAt.String)
+		t.CompletedAt = parseTime(completedAt.String)
+		t.Branch = nullString(branch)
+		t.PRURL = nullString(prURL)
+		t.MergedAt = parseTime(mergedAt.String)
+		t.TenantID = nullString(tenant)
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) ListTickets(sprintID string) ([]Ticket, error) {
-	query := `SELECT id, sprint_id, title, description, status, owner_agent, priority, acceptance_criteria, handoff_doc_path, due_date, labels, claimed_by, claimed_at, completed_at, branch, pr_url, merged_at, created_at, updated_at FROM tickets`
+	query := `SELECT id, sprint_id, title, description, status, owner_agent, priority, acceptance_criteria, handoff_doc_path, due_date, labels, claimed_by, claimed_at, completed_at, branch, pr_url, merged_at, created_at, updated_at, tenant_id FROM tickets`
 	var args []interface{}
 	if sprintID != "" {
 		query += ` WHERE sprint_id = ?`
@@ -417,12 +588,12 @@ func (s *Store) ListTickets(sprintID string) ([]Ticket, error) {
 		var createdAt, updatedAt string
 		var sprintID, description, ownerAgent, acceptanceCriteria, handoffDocPath sql.NullString
 		var dueDate, labelsRaw, claimedBy, claimedAt, completedAt sql.NullString
-		var branch, prURL, mergedAt sql.NullString
+		var branch, prURL, mergedAt, tenant sql.NullString
 		err := rows.Scan(&t.ID, &sprintID, &t.Title, &description, &t.Status,
 			&ownerAgent, &t.Priority, &acceptanceCriteria, &handoffDocPath,
 			&dueDate, &labelsRaw, &claimedBy, &claimedAt, &completedAt,
 			&branch, &prURL, &mergedAt,
-			&createdAt, &updatedAt)
+			&createdAt, &updatedAt, &tenant)
 		if err != nil {
 			return nil, err
 		}
@@ -441,6 +612,7 @@ func (s *Store) ListTickets(sprintID string) ([]Ticket, error) {
 		t.MergedAt = parseTime(nullString(mergedAt))
 		t.CreatedAt = parseTime(createdAt)
 		t.UpdatedAt = parseTime(updatedAt)
+		t.TenantID = nullString(tenant)
 		tickets = append(tickets, t)
 	}
 	return tickets, rows.Err()
@@ -652,15 +824,15 @@ func (s *Store) GetTicket(id string) (Ticket, error) {
 	var createdAt, updatedAt string
 	var sprintID, description, ownerAgent, acceptanceCriteria, handoffDocPath sql.NullString
 	var dueDate, labelsRaw, claimedBy, claimedAt, completedAt sql.NullString
-	var branch, prURL, mergedAt sql.NullString
+	var branch, prURL, mergedAt, tenant sql.NullString
 	err := s.db.QueryRow(
-		`SELECT id, sprint_id, title, description, status, owner_agent, priority, acceptance_criteria, handoff_doc_path, due_date, labels, claimed_by, claimed_at, completed_at, branch, pr_url, merged_at, created_at, updated_at
+		`SELECT id, sprint_id, title, description, status, owner_agent, priority, acceptance_criteria, handoff_doc_path, due_date, labels, claimed_by, claimed_at, completed_at, branch, pr_url, merged_at, created_at, updated_at, tenant_id
 		 FROM tickets WHERE id = ?`, id,
 	).Scan(&t.ID, &sprintID, &t.Title, &description, &t.Status,
 		&ownerAgent, &t.Priority, &acceptanceCriteria, &handoffDocPath,
 		&dueDate, &labelsRaw, &claimedBy, &claimedAt, &completedAt,
 		&branch, &prURL, &mergedAt,
-		&createdAt, &updatedAt)
+		&createdAt, &updatedAt, &tenant)
 	if err != nil {
 		return Ticket{}, fmt.Errorf("ticket %q not found: %w", id, err)
 	}
@@ -679,6 +851,7 @@ func (s *Store) GetTicket(id string) (Ticket, error) {
 	t.MergedAt = parseTime(nullString(mergedAt))
 	t.CreatedAt = parseTime(createdAt)
 	t.UpdatedAt = parseTime(updatedAt)
+	t.TenantID = nullString(tenant)
 	return t, nil
 }
 
