@@ -2,8 +2,10 @@ package api_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"testing"
+	"time"
 )
 
 func TestFleetStatsHistory_Empty(t *testing.T) {
@@ -31,7 +33,11 @@ func TestFleetPROutcomeCreateAndHistory(t *testing.T) {
 	ts := setupTestServer(t)
 	defer ts.Close()
 
-	body := `{
+	// Use recorded_at = now so the record falls inside the 7-day
+	// window queried by the history endpoint. Earlier versions
+	// hard-coded a date that drifted out of the window as time
+	// passed, causing a stale-data FAIL.
+	body := fmt.Sprintf(`{
 		"host": "wsl2",
 		"repo": "nfsarch33/helixon-ec",
 		"pr_number": 184,
@@ -39,9 +45,9 @@ func TestFleetPROutcomeCreateAndHistory(t *testing.T) {
 		"verdict": "pass",
 		"reviewer_agent": "fleet-pr-reviewer",
 		"merge_sha": "deadbeef",
-		"recorded_at": "2026-07-04T14:00:00Z",
+		"recorded_at": %q,
 		"payload": {"checks_url": "https://example/ci"}
-	}`
+	}`, time.Now().UTC().Format(time.RFC3339))
 	resp := postJSON(t, ts.URL+"/api/v1/fleet-pr-outcomes", body)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusCreated {
