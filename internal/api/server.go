@@ -31,6 +31,7 @@ type Server struct {
 	mux      *http.ServeMux
 	shutting atomic.Bool
 	metrics  *sprintboard.Metrics
+	jwt      *JWTAuthenticator // v18680-2: optional; if nil, no JWT enforcement
 }
 
 func NewServer(store *sprintboard.Store, logger *slog.Logger) *Server {
@@ -39,6 +40,10 @@ func NewServer(store *sprintboard.Store, logger *slog.Logger) *Server {
 	s.routes()
 	return s
 }
+
+// SetJWTAuth wires the JWT middleware (v18680-2). Must be called after
+// NewServer and before Handler() returns. Pass nil to disable JWT.
+func (s *Server) SetJWTAuth(auth *JWTAuthenticator) { s.jwt = auth }
 
 // Handler returns the configured middleware chain. We deliberately do NOT
 // wrap with http.TimeoutHandler here: the SQLite store uses SetMaxOpenConns(1)
@@ -51,7 +56,14 @@ func NewServer(store *sprintboard.Store, logger *slog.Logger) *Server {
 // timeouts is solved by drainAndClose on every body-decoding handler, which
 // allows net/http to recycle the keep-alive connection cleanly.
 func (s *Server) Handler() http.Handler {
-	return s.withMiddleware(s.mux)
+	h := s.withMiddleware(s.mux)
+	if s.jwt != nil {
+		// JWT middleware runs INSIDE the access logger so failed auth
+		// still gets logged with method+path+duration. /healthz etc.
+		// bypass JWT (JWTAuthenticator.isBypassedPath).
+		h = s.jwt.Middleware(h)
+	}
+	return h
 }
 
 // SetShuttingDown marks the server as shutting down; /readyz returns 503.

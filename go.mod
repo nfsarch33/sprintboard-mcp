@@ -4,6 +4,7 @@ go 1.25.0
 
 require (
 	github.com/jackc/pgx/v5 v5.9.2
+	github.com/nfsarch33/helixon-common v0.0.0-20260717142344-589cbdbb2e8f
 	go.temporal.io/sdk v1.43.1
 	modernc.org/sqlite v1.36.0
 )
