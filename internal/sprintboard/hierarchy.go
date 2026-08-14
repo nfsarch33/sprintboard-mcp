@@ -96,14 +96,18 @@ func (s *Store) migrateV2Hierarchy() error {
 		}
 	}
 
+	// SQLite does NOT support inline FOREIGN KEY REFERENCES in ALTER TABLE
+	// ADD COLUMN — the column-definition syntax for ALTER differs from CREATE.
+	// Foreign-key constraints are added separately via CREATE INDEX lookups
+	// at the application layer (see migrateV2HierarchyFKs).
 	alters := []string{
-		`ALTER TABLE sprints ADD COLUMN programme_id TEXT REFERENCES programmes(id)`,
+		`ALTER TABLE sprints ADD COLUMN programme_id TEXT`,
 		`ALTER TABLE sprints ADD COLUMN goal TEXT`,
-		`ALTER TABLE tickets ADD COLUMN epic_id TEXT REFERENCES epics(id)`,
+		`ALTER TABLE tickets ADD COLUMN epic_id TEXT`,
 		`ALTER TABLE tickets ADD COLUMN story_type TEXT DEFAULT 'task'`,
 		`ALTER TABLE tickets ADD COLUMN estimate_minutes INTEGER`,
 		`ALTER TABLE tickets ADD COLUMN actual_minutes INTEGER`,
-		`ALTER TABLE tickets ADD COLUMN parent_ticket_id TEXT REFERENCES tickets(id)`,
+		`ALTER TABLE tickets ADD COLUMN parent_ticket_id TEXT`,
 	}
 	for _, stmt := range alters {
 		if _, err := s.db.Exec(stmt); err != nil && !isAlterColumnExists(err) {

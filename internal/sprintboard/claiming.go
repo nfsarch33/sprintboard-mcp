@@ -185,3 +185,37 @@ func (s *Store) ReleaseNullClaims() (int64, error) {
 	}
 	return res.RowsAffected()
 }
+
+// ClaimRecord is a single audit-trail entry for a ticket claim attempt.
+type ClaimRecord struct {
+	TicketID  string
+	ClaimedBy string
+	Note      string
+	Timestamp string
+}
+
+// ClaimHistory returns the chronological audit timeline of every claim
+// attempt against a ticket (successes + conflicts), oldest first.
+// Returns an empty (non-nil) slice when the ticket has no claims yet.
+func (s *Store) ClaimHistory(ticketID string) []ClaimRecord {
+	rows, err := s.db.Query(
+		`SELECT ticket_id, agent_id, note, timestamp
+		 FROM ticket_transitions
+		 WHERE ticket_id = ? AND note = 'claimed'
+		 ORDER BY timestamp ASC`,
+		ticketID,
+	)
+	if err != nil {
+		return []ClaimRecord{}
+	}
+	defer rows.Close()
+	out := []ClaimRecord{}
+	for rows.Next() {
+		var r ClaimRecord
+		if err := rows.Scan(&r.TicketID, &r.ClaimedBy, &r.Note, &r.Timestamp); err != nil {
+			continue
+		}
+		out = append(out, r)
+	}
+	return out
+}
