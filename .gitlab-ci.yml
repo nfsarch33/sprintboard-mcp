@@ -26,6 +26,27 @@ test:
       - coverage.out
     when: always
 
+integration:ginkgo:
+  stage: test
+  image: golang:${GO_VERSION}
+  tags: [go, docker]
+  script:
+    - go install github.com/onsi/ginkgo/v2/ginkgo@latest
+    - ginkgo -r --tags=integration --trace --cover --coverprofile=integration.coverprofile
+    - go tool cover -func=integration.coverprofile | tee coverage.txt
+    - go test -race -tags=integration -count=1 ./...
+  artifacts:
+    when: always
+    reports:
+      junit: report.xml
+      coverage_report:
+        coverage_format: cobertura
+        path: integration.coverprofile
+  coverage: '/total:\s+\(statements\)\s+(\d+.\d+)%/'
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+
 build:
   stage: build
   image: golang:${GO_VERSION}
