@@ -38,7 +38,7 @@ Add to `~/.cursor/mcp.json`:
 }
 ```
 
-## Tools (33)
+## Tools
 
 ### Sprint Management
 
