@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 
 	"github.com/nfsarch33/sprintboard-mcp/internal/sprintboard"
 )
@@ -79,7 +80,9 @@ func (s *Server) sessionHandoffStore(args json.RawMessage) (string, bool) {
 		return fmt.Sprintf("store handoff: %v", err), true
 	}
 
-	s.store.AutoArchiveOldHandoffs()
+	if err := s.store.AutoArchiveOldHandoffs(); err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "auto-archive handoffs (non-fatal): %v\n", err)
+	}
 
 	out, _ := json.Marshal(map[string]string{
 		"status": "stored",

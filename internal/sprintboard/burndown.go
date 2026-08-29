@@ -7,13 +7,13 @@ import (
 )
 
 type BurndownEntry struct {
-	SprintID        string  `json:"sprint_id"`
-	TotalEstimate   float64 `json:"total_estimate_hours"`
-	DoneEstimate    float64 `json:"done_estimate_hours"`
+	SprintID          string  `json:"sprint_id"`
+	TotalEstimate     float64 `json:"total_estimate_hours"`
+	DoneEstimate      float64 `json:"done_estimate_hours"`
 	RemainingEstimate float64 `json:"remaining_estimate_hours"`
-	TicketCount     int     `json:"ticket_count"`
-	DoneCount       int     `json:"done_count"`
-	Timestamp       string  `json:"timestamp"`
+	TicketCount       int     `json:"ticket_count"`
+	DoneCount         int     `json:"done_count"`
+	Timestamp         string  `json:"timestamp"`
 }
 
 func (s *Store) SetTicketEstimate(ticketID string, hours float64) error {

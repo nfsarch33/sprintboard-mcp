@@ -17,24 +17,24 @@ import (
 
 // Metrics holds the per-process counters. Create one per Store/Server.
 type Metrics struct {
-	TicketsCreated     atomic.Uint64
-	TicketsClaimed     atomic.Uint64
-	TicketsCompleted   atomic.Uint64
-	AgentsRegistered   atomic.Uint64
-	HandoffsPublished  atomic.Uint64
-	CommentsAdded      atomic.Uint64
+	TicketsCreated    atomic.Uint64
+	TicketsClaimed    atomic.Uint64
+	TicketsCompleted  atomic.Uint64
+	AgentsRegistered  atomic.Uint64
+	HandoffsPublished atomic.Uint64
+	CommentsAdded     atomic.Uint64
 }
 
 // NewMetrics returns a zero-initialised Metrics.
 func NewMetrics() *Metrics { return &Metrics{} }
 
 // IncTicketsCreated is a convenience wrapper for the most common call.
-func (m *Metrics) IncTicketsCreated() { m.TicketsCreated.Add(1) }
-func (m *Metrics) IncTicketsClaimed() { m.TicketsClaimed.Add(1) }
-func (m *Metrics) IncTicketsCompleted() { m.TicketsCompleted.Add(1) }
-func (m *Metrics) IncAgentsRegistered() { m.AgentsRegistered.Add(1) }
+func (m *Metrics) IncTicketsCreated()    { m.TicketsCreated.Add(1) }
+func (m *Metrics) IncTicketsClaimed()    { m.TicketsClaimed.Add(1) }
+func (m *Metrics) IncTicketsCompleted()  { m.TicketsCompleted.Add(1) }
+func (m *Metrics) IncAgentsRegistered()  { m.AgentsRegistered.Add(1) }
 func (m *Metrics) IncHandoffsPublished() { m.HandoffsPublished.Add(1) }
-func (m *Metrics) IncCommentsAdded() { m.CommentsAdded.Add(1) }
+func (m *Metrics) IncCommentsAdded()     { m.CommentsAdded.Add(1) }
 
 // WritePrometheus emits the metrics in Prometheus text format. Counter
 // names use the "sprintboard_" prefix per the Prometheus naming

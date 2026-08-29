@@ -77,12 +77,14 @@ func main() {
 		os.Exit(2)
 	}
 
-	// Global common flags are accepted anywhere in argv. We walk argv
-	// to extract them, then pass the remaining (subcommand + its own
-	// flags) to the per-subcommand dispatcher.
+	// Global common flags are accepted only BEFORE the subcommand. splitCommon
+	// walks argv, consuming -db/-base/-json/-v until it meets the first
+	// non-common argument, which becomes the subcommand; everything after that
+	// is the subcommand's own flag tail. (An earlier comment here claimed they
+	// were accepted "anywhere in argv", which splitCommon has never done.)
 	cf := &commonFlags{}
 	argv := os.Args[1:]
-	argv, sub, tail := splitCommon(cf, argv)
+	_, sub, tail := splitCommon(cf, argv)
 
 	if sub == "" {
 		fmt.Fprint(os.Stderr, usage)
@@ -206,7 +208,7 @@ func runClean(cf *commonFlags, args []string) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	defer closer()
+	defer func() { _ = closer() }()
 
 	tickets, err := store.ListTickets("")
 	if err != nil {
@@ -257,14 +259,14 @@ func runClean(cf *commonFlags, args []string) int {
 	sort.Slice(stale, func(i, j int) bool { return stale[i].ID < stale[j].ID })
 
 	report := map[string]interface{}{
-		"timestamp":  time.Now().UTC().Format(time.RFC3339),
-		"subcommand": "clean",
-		"pattern":    *pattern,
-		"stale_days": *staleDays,
-		"dry_run":    *dryRun,
+		"timestamp":   time.Now().UTC().Format(time.RFC3339),
+		"subcommand":  "clean",
+		"pattern":     *pattern,
+		"stale_days":  *staleDays,
+		"dry_run":     *dryRun,
 		"keep_sprint": *keepSprint,
 		"stale_count": len(stale),
-		"stale":      stale,
+		"stale":       stale,
 	}
 	if cf.jsonOut || !*dryRun {
 		enc := json.NewEncoder(os.Stdout)
@@ -312,102 +314,102 @@ func defaultSeedTickets() []seedTicket {
 	_ = now
 	return []seedTicket{
 		{
-			ID:          "v13910-s5-t1",
-			Title:       "SprintBoard MCP+server fix (S5.1)",
-			Description: "Catalog cleanup (`sprintboard clean`), seed tickets (`sprintboard seed`), restartPolicy:Always, ServiceMonitor, helix-dev-tools doctor sprintboard subcommand. See plans/v13910 §5 S5.1 and evidence/sprintboard-mcp-v13910-2026-06-17.md.",
-			Status:      "ready",
-			OwnerAgent:  "helixon-fleet-devops-agent",
-			Priority:    100,
+			ID:                 "v13910-s5-t1",
+			Title:              "SprintBoard MCP+server fix (S5.1)",
+			Description:        "Catalog cleanup (`sprintboard clean`), seed tickets (`sprintboard seed`), restartPolicy:Always, ServiceMonitor, helix-dev-tools doctor sprintboard subcommand. See plans/v13910 §5 S5.1 and evidence/sprintboard-mcp-v13910-2026-06-17.md.",
+			Status:             "ready",
+			OwnerAgent:         "helixon-fleet-devops-agent",
+			Priority:           100,
 			AcceptanceCriteria: "`sprintboard clean --dry-run` reports 0 rows; `sprintboard seed` is idempotent; `doctor sprintboard` shows 0 stale `session-operator-*` rows >7d; ServiceMonitor wired; restartPolicy:Always present.",
 		},
 		{
-			ID:          "v13910-s5-t2",
-			Title:       "win1/wsl1 reboot auto-recovery audit (S5.2)",
-			Description: "19-component audit. Per-component table with restart-mechanism, status, fix-needed. Handoff: sop/handoff-win1-wsl1-reboot-recovery-v13910.md. Update evidence/auto-restart-audit-v13910-2026-06-17.md.",
-			Status:      "ready",
-			OwnerAgent:  "helixon-fleet-devops-agent",
-			Priority:    95,
+			ID:                 "v13910-s5-t2",
+			Title:              "win1/wsl1 reboot auto-recovery audit (S5.2)",
+			Description:        "19-component audit. Per-component table with restart-mechanism, status, fix-needed. Handoff: sop/handoff-win1-wsl1-reboot-recovery-v13910.md. Update evidence/auto-restart-audit-v13910-2026-06-17.md.",
+			Status:             "ready",
+			OwnerAgent:         "helixon-fleet-devops-agent",
+			Priority:           95,
 			AcceptanceCriteria: "19 components audited (Engram x6, Agentrace, EvoSpine-DRL, Temporal x4, Prometheus x5, OTel, k3s, llm-cluster-router, Harbor x7, fleet-agent, fleet-doctor, vllm-3090, vllm-4070ti, llm-router, SprintBoard MCP+server = 38+1=39+1=40). Handoff doc 7-section format per Rule §1.",
 		},
 		{
-			ID:          "v13910-s5-t3",
-			Title:       "S5 closeout + 3-way SHA + handoff (S5.3)",
-			Description: "Merge v13910-s5 branches to main on wsl1 SOT, push to GitLab, capture tree-SHA parity, write handoff doc per Rule §1, update carry-forward-register.ndjson, record Agentrace span sprint:v13910-s5.",
-			Status:      "ready",
-			OwnerAgent:  "helixon-fleet-coding-agent",
-			Priority:    90,
+			ID:                 "v13910-s5-t3",
+			Title:              "S5 closeout + 3-way SHA + handoff (S5.3)",
+			Description:        "Merge v13910-s5 branches to main on wsl1 SOT, push to GitLab, capture tree-SHA parity, write handoff doc per Rule §1, update carry-forward-register.ndjson, record Agentrace span sprint:v13910-s5.",
+			Status:             "ready",
+			OwnerAgent:         "helixon-fleet-coding-agent",
+			Priority:           90,
 			AcceptanceCriteria: "Branches merged; 3-way SHA proof at evidence/three-way-sha-v13910-s5-2026-06-17.md; handoff at sop/handoff-v13910-s5-sprintboard-reboot.md; CF register updated; Agentrace span recorded.",
 		},
 		{
-			ID:          "v13910-s6-t1",
-			Title:       "Comprehensive code review (S6.1)",
-			Description: "v13900 + v13910 S1-S5 diffs. golangci-lint, govulncheck, gosec, ruff, mypy, bandit, kubeval, conftest, shellcheck. Wire each linter as GitLab CI job. Wire CI-failure notifier hook.",
-			Status:      "ready",
-			OwnerAgent:  "helixon-fleet-coding-agent",
-			Priority:    80,
+			ID:                 "v13910-s6-t1",
+			Title:              "Comprehensive code review (S6.1)",
+			Description:        "v13900 + v13910 S1-S5 diffs. golangci-lint, govulncheck, gosec, ruff, mypy, bandit, kubeval, conftest, shellcheck. Wire each linter as GitLab CI job. Wire CI-failure notifier hook.",
+			Status:             "ready",
+			OwnerAgent:         "helixon-fleet-coding-agent",
+			Priority:           80,
 			AcceptanceCriteria: "evidence/code-review-v13900-v13910-2026-06-17.md with per-MR findings + sign-off. All linters in GitLab CI. CI-failure-notify hook installed and tested.",
 		},
 		{
-			ID:          "v13910-s6-t2",
-			Title:       "Workspace housekeeping + cleanup (S6.2)",
-			Description: "Run helix-dev-tools doctor workspace across all touched repos. Resolve github-sync blocker. Delete merged local branches. Update .gitignore.",
-			Status:      "ready",
-			OwnerAgent:  "helixon-fleet-devops-agent",
-			Priority:    75,
+			ID:                 "v13910-s6-t2",
+			Title:              "Workspace housekeeping + cleanup (S6.2)",
+			Description:        "Run helix-dev-tools doctor workspace across all touched repos. Resolve github-sync blocker. Delete merged local branches. Update .gitignore.",
+			Status:             "ready",
+			OwnerAgent:         "helixon-fleet-devops-agent",
+			Priority:           75,
 			AcceptanceCriteria: "evidence/workspace-housekeeping-v13910-2026-06-17.md with per-repo clean-state. github-sync blocker resolved OR workaround documented + applied.",
 		},
 		{
-			ID:          "v13910-s6-t3",
-			Title:       "EvoSpine self-eval cycle (S6.3)",
-			Description: "Run the Observe-Reflect-Heal-Evolve-Promote cycle. Surface top 3 improvement candidates with (a) current state, (b) target state, (c) experiment, (d) success metric, (e) carry to v13911/v13912.",
-			Status:      "ready",
-			OwnerAgent:  "helixon-fleet-coding-agent",
-			Priority:    70,
+			ID:                 "v13910-s6-t3",
+			Title:              "EvoSpine self-eval cycle (S6.3)",
+			Description:        "Run the Observe-Reflect-Heal-Evolve-Promote cycle. Surface top 3 improvement candidates with (a) current state, (b) target state, (c) experiment, (d) success metric, (e) carry to v13911/v13912.",
+			Status:             "ready",
+			OwnerAgent:         "helixon-fleet-coding-agent",
+			Priority:           70,
 			AcceptanceCriteria: "evidence/evospine-self-eval-v13910-2026-06-17.md with 3 candidates.",
 		},
 		{
-			ID:          "v13910-s7-t1",
-			Title:       "Eval agent/harness (S7.1)",
-			Description: "Build cursor-global-kb/eval/harness (or helix-dev-tools-phasea/internal/eval/harness.go) with 6 scenarios (ticket-intake, code-edit, test-run, PR-creation, CI-run, handoff-write). Wire as nightly GitLab CI job + Grafana dashboard.",
-			Status:      "ready",
-			OwnerAgent:  "helixon-fleet-coding-agent",
-			Priority:    65,
+			ID:                 "v13910-s7-t1",
+			Title:              "Eval agent/harness (S7.1)",
+			Description:        "Build cursor-global-kb/eval/harness (or helix-dev-tools-phasea/internal/eval/harness.go) with 6 scenarios (ticket-intake, code-edit, test-run, PR-creation, CI-run, handoff-write). Wire as nightly GitLab CI job + Grafana dashboard.",
+			Status:             "ready",
+			OwnerAgent:         "helixon-fleet-coding-agent",
+			Priority:           65,
 			AcceptanceCriteria: "evidence/eval-harness-v13910-2026-06-17.md with first eval run results.",
 		},
 		{
-			ID:          "v13910-s7-t2",
-			Title:       "Helixon fleet autonomy loop (S7.2)",
-			Description: "Wire HelixonFleetContinuousEvalWorkflow into Temporal. Runs every 6h. Picks latest agent artifact, runs eval suite, posts score to Prometheus + Agenttrace, alerts on regression >5%.",
-			Status:      "ready",
-			OwnerAgent:  "helixon-fleet-devops-agent",
-			Priority:    60,
+			ID:                 "v13910-s7-t2",
+			Title:              "Helixon fleet autonomy loop (S7.2)",
+			Description:        "Wire HelixonFleetContinuousEvalWorkflow into Temporal. Runs every 6h. Picks latest agent artifact, runs eval suite, posts score to Prometheus + Agenttrace, alerts on regression >5%.",
+			Status:             "ready",
+			OwnerAgent:         "helixon-fleet-devops-agent",
+			Priority:           60,
 			AcceptanceCriteria: "evidence/helixon-fleet-autonomy-v13910-2026-06-17.md with workflow registration confirmation.",
 		},
 		{
-			ID:          "v13910-s7-t3",
-			Title:       "Skill transfer to fleet agents (S7.3)",
-			Description: "Append v13910 closeout learnings to helixon-fleet-{coding,devops}-agent.md. Add 3 new global rules (worktree/stash hygiene, branch-review-before-new-PR, quality-over-time).",
-			Status:      "ready",
-			OwnerAgent:  "helixon-fleet-coding-agent",
-			Priority:    55,
+			ID:                 "v13910-s7-t3",
+			Title:              "Skill transfer to fleet agents (S7.3)",
+			Description:        "Append v13910 closeout learnings to helixon-fleet-{coding,devops}-agent.md. Add 3 new global rules (worktree/stash hygiene, branch-review-before-new-PR, quality-over-time).",
+			Status:             "ready",
+			OwnerAgent:         "helixon-fleet-coding-agent",
+			Priority:           55,
 			AcceptanceCriteria: "evidence/helixon-fleet-skill-transfer-v13910-2026-06-17.md with the diff.",
 		},
 		{
-			ID:          "v13910-s8-t1",
-			Title:       "Final closeout + 3-way SHA (S8.1)",
-			Description: "Aggregate all 7 sprint handoff docs + Agentrace spans + closeout MRs into session-handoffs/overnight-closeout-2026-06-16-v13910.md. Capture wsl1 SOT, GitLab main, GitHub main SHAs across 4 repos. Update daily-startup-prompt.md + vendor-mirror-index.yaml.",
-			Status:      "ready",
-			OwnerAgent:  "helixon-fleet-coding-agent",
-			Priority:    50,
+			ID:                 "v13910-s8-t1",
+			Title:              "Final closeout + 3-way SHA (S8.1)",
+			Description:        "Aggregate all 7 sprint handoff docs + Agentrace spans + closeout MRs into session-handoffs/overnight-closeout-2026-06-16-v13910.md. Capture wsl1 SOT, GitLab main, GitHub main SHAs across 4 repos. Update daily-startup-prompt.md + vendor-mirror-index.yaml.",
+			Status:             "ready",
+			OwnerAgent:         "helixon-fleet-coding-agent",
+			Priority:           50,
 			AcceptanceCriteria: "Final closeout handoff at sop/handoff-v13910-final-2026-06-17.md (7 sections).",
 		},
 		{
-			ID:          "v13910-s8-t2",
-			Title:       "Carry-forwards to v13911 (S8.2)",
-			Description: "Document all v13911 carry-forwards: engram ns delete, O3/O4 rename, op signin cron, HARBOR_ROBOT_TOKEN rotation, fleet-doctor, vendor-mirror-repo research, vLLM v0.7+ upgrade, multi-tenant fleet isolation, estimate-tuning retraining, S6.3 candidates.",
-			Status:      "ready",
-			OwnerAgent:  "helixon-fleet-coding-agent",
-			Priority:    45,
+			ID:                 "v13910-s8-t2",
+			Title:              "Carry-forwards to v13911 (S8.2)",
+			Description:        "Document all v13911 carry-forwards: engram ns delete, O3/O4 rename, op signin cron, HARBOR_ROBOT_TOKEN rotation, fleet-doctor, vendor-mirror-repo research, vLLM v0.7+ upgrade, multi-tenant fleet isolation, estimate-tuning retraining, S6.3 candidates.",
+			Status:             "ready",
+			OwnerAgent:         "helixon-fleet-coding-agent",
+			Priority:           45,
 			AcceptanceCriteria: "carry-forward-register.ndjson has v13911 backlog populated; new plan file drafted.",
 		},
 		// Helixon fleet candidates — derived from the S2.3 + S4 cycle evidence
@@ -415,48 +417,48 @@ func defaultSeedTickets() []seedTicket {
 		// execution traces). These represent small, well-defined, reversible
 		// tickets that an autonomous fleet coding agent can pick up safely.
 		{
-			ID:          "fleet-cand-001",
-			Title:       "sprintboard-mcp: add metrics endpoint",
-			Description: "Expose a /metrics endpoint on sprintboard-api that emits Prometheus counters: tickets_created_total, tickets_claimed_total, tickets_completed_total, agents_registered_total. Follow the same JSON-handler + middleware-chain pattern as /healthz.",
-			Status:      "ready",
-			OwnerAgent:  "helixon-fleet-coding-agent",
-			Priority:    40,
+			ID:                 "fleet-cand-001",
+			Title:              "sprintboard-mcp: add metrics endpoint",
+			Description:        "Expose a /metrics endpoint on sprintboard-api that emits Prometheus counters: tickets_created_total, tickets_claimed_total, tickets_completed_total, agents_registered_total. Follow the same JSON-handler + middleware-chain pattern as /healthz.",
+			Status:             "ready",
+			OwnerAgent:         "helixon-fleet-coding-agent",
+			Priority:           40,
 			AcceptanceCriteria: "`curl :9400/metrics` returns Prometheus text format. Counters increment on the corresponding API calls. Unit tests cover increment + format.",
 		},
 		{
-			ID:          "fleet-cand-002",
-			Title:       "sprintboard-mcp: add ticket priority sort",
-			Description: "The /api/v1/sprints/{id}/tickets endpoint currently sorts by `priority DESC, created_at ASC` which is good, but agents consume it without a stable sort tiebreaker on equal priority. Add `id ASC` as a final tiebreaker for deterministic ordering.",
-			Status:      "ready",
-			OwnerAgent:  "helixon-fleet-coding-agent",
-			Priority:    35,
+			ID:                 "fleet-cand-002",
+			Title:              "sprintboard-mcp: add ticket priority sort",
+			Description:        "The /api/v1/sprints/{id}/tickets endpoint currently sorts by `priority DESC, created_at ASC` which is good, but agents consume it without a stable sort tiebreaker on equal priority. Add `id ASC` as a final tiebreaker for deterministic ordering.",
+			Status:             "ready",
+			OwnerAgent:         "helixon-fleet-coding-agent",
+			Priority:           35,
 			AcceptanceCriteria: "Unit test: insert 5 tickets with priority=0; list them; assert order is deterministic across 100 calls.",
 		},
 		{
-			ID:          "fleet-cand-003",
-			Title:       "cursor-global-kb: backport S3.7 sampling guardrails to S3 handoff",
-			Description: "S4-T1 from S4 (PROPOSED-ONLY, soft go-live). Add a §3a (corrected matrix) and §3b (sampling guardrails) to sop/handoff-v13910-s3-gpu-deploy.md. Spec in evidence/s4-ticket-spec-S4-T1-2026-06-17.md.",
-			Status:      "ready",
-			OwnerAgent:  "helixon-fleet-coding-agent",
-			Priority:    30,
+			ID:                 "fleet-cand-003",
+			Title:              "cursor-global-kb: backport S3.7 sampling guardrails to S3 handoff",
+			Description:        "S4-T1 from S4 (PROPOSED-ONLY, soft go-live). Add a §3a (corrected matrix) and §3b (sampling guardrails) to sop/handoff-v13910-s3-gpu-deploy.md. Spec in evidence/s4-ticket-spec-S4-T1-2026-06-17.md.",
+			Status:             "ready",
+			OwnerAgent:         "helixon-fleet-coding-agent",
+			Priority:           30,
 			AcceptanceCriteria: "Diff matches evidence/s4-ticket-spec-S4-T1-2026-06-17.md §3 byte-for-byte. link-integrity check on all 4 relative .md links passes.",
 		},
 		{
-			ID:          "fleet-cand-004",
-			Title:       "helix-dev-tools-phasea: doctor_llm §15 floor + S3.7 sampling tests",
-			Description: "S4-T2 from S4 (PROPOSED-ONLY, soft go-live). Add 6 regression tests + 2 supporting const maps to internal/cli/doctor_llm* for §15 capability-floor + S3.7 sampling-presence coverage. Spec in evidence/s4-ticket-spec-S4-T2-2026-06-17.md.",
-			Status:      "ready",
-			OwnerAgent:  "helixon-fleet-coding-agent",
-			Priority:    30,
+			ID:                 "fleet-cand-004",
+			Title:              "helix-dev-tools-phasea: doctor_llm §15 floor + S3.7 sampling tests",
+			Description:        "S4-T2 from S4 (PROPOSED-ONLY, soft go-live). Add 6 regression tests + 2 supporting const maps to internal/cli/doctor_llm* for §15 capability-floor + S3.7 sampling-presence coverage. Spec in evidence/s4-ticket-spec-S4-T2-2026-06-17.md.",
+			Status:             "ready",
+			OwnerAgent:         "helixon-fleet-coding-agent",
+			Priority:           30,
 			AcceptanceCriteria: "go test ./internal/cli -run DoctorLLM -v passes 11 tests (5 existing + 6 new). Coverage on internal/cli/doctor_llm.go >= 80%.",
 		},
 		{
-			ID:          "fleet-cand-005",
-			Title:       "sprintboard-mcp: ServiceMonitor + restartPolicy:Always verification",
-			Description: "Verify the k3s deployment manifest in cursor-global-kb/k8s/sprintboard/deployment.yaml has restartPolicy: Always (currently missing) + a ServiceMonitor (currently missing). Add both, write evidence/three-way-sha-sprintboard-v13910-2026-06-17.md.",
-			Status:      "ready",
-			OwnerAgent:  "helixon-fleet-devops-agent",
-			Priority:    25,
+			ID:                 "fleet-cand-005",
+			Title:              "sprintboard-mcp: ServiceMonitor + restartPolicy:Always verification",
+			Description:        "Verify the k3s deployment manifest in cursor-global-kb/k8s/sprintboard/deployment.yaml has restartPolicy: Always (currently missing) + a ServiceMonitor (currently missing). Add both, write evidence/three-way-sha-sprintboard-v13910-2026-06-17.md.",
+			Status:             "ready",
+			OwnerAgent:         "helixon-fleet-devops-agent",
+			Priority:           25,
 			AcceptanceCriteria: "kustomize build cursor-global-kb/k8s/sprintboard/ | grep -E 'restartPolicy|ServiceMonitor' returns 2 hits. Evidence file committed.",
 		},
 	}
@@ -475,7 +477,7 @@ func runSeed(cf *commonFlags, args []string) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	defer closer()
+	defer func() { _ = closer() }()
 
 	// Ensure the sprint exists.
 	if err := store.CreateSprint(sprintboard.Sprint{
@@ -527,13 +529,13 @@ func runSeed(cf *commonFlags, args []string) int {
 	}
 
 	out := map[string]interface{}{
-		"timestamp":      time.Now().UTC().Format(time.RFC3339),
-		"subcommand":     "seed",
-		"sprint":         *sprintID,
-		"inserted":       inserted,
-		"skipped":        skipped,
-		"only_new":       *onlyNew,
-		"results":        report,
+		"timestamp":  time.Now().UTC().Format(time.RFC3339),
+		"subcommand": "seed",
+		"sprint":     *sprintID,
+		"inserted":   inserted,
+		"skipped":    skipped,
+		"only_new":   *onlyNew,
+		"results":    report,
 	}
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
@@ -578,7 +580,7 @@ func runHealth(cf *commonFlags, args []string) int {
 	if err != nil {
 		checks = append(checks, healthCheck{Name: "store-ping", OK: false, Detail: err.Error()})
 	} else {
-		defer closer()
+		defer func() { _ = closer() }()
 		if err := store.Ping(); err != nil {
 			checks = append(checks, healthCheck{Name: "store-ping", OK: false, Detail: err.Error()})
 		} else {
@@ -655,7 +657,7 @@ func runList(cf *commonFlags, args []string) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	defer closer()
+	defer func() { _ = closer() }()
 
 	tickets, err := store.ListTickets(*sprint)
 	if err != nil {

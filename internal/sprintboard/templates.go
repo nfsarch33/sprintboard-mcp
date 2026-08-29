@@ -87,8 +87,8 @@ func (s *Store) CreateSprintTemplate(tmpl SprintTemplate) error {
 // GetSprintTemplate returns the template for a given id.
 func (s *Store) GetSprintTemplate(id string) (SprintTemplate, error) {
 	var (
-		tmpl                                SprintTemplate
-		description, theme, ticketsRaw, ts  sql.NullString
+		tmpl                               SprintTemplate
+		description, theme, ticketsRaw, ts sql.NullString
 	)
 	err := s.db.QueryRow(
 		`SELECT id, name, description, theme, tickets_json, created_at FROM sprint_templates WHERE id = ?`, id,
@@ -181,7 +181,7 @@ func (s *Store) InstantiateSprintFromTemplate(templateID string, sprint Sprint) 
 	if err != nil {
 		return SprintInstantiation{}, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	if _, err := tx.Exec(
 		`INSERT INTO sprints (id, name, status, owner_agent, theme, start_at, end_at, created_at)

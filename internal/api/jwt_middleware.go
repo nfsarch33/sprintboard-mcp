@@ -9,11 +9,11 @@ import (
 	"github.com/nfsarch33/helixon-common/jwtauth"
 )
 
-// ctxKeyClaims is the request-context key under which verified JWT claims
-// are stored. Handlers can pull claims via claimsFrom(r.Context()).
-type ctxKeyClaims string
-
-const claimsContextKey ctxKeyClaims = "sprintboard.jwt.claims"
+// The request-context key for verified claims lives in jwt_context.go
+// (ctxKey/ctxClaimsKey), alongside withClaims/claimsFrom/tenantFrom. A second
+// unused pair was declared here and shadowed nothing; it is removed rather
+// than nolint-ed, because two context keys for one value is a bug waiting to
+// happen the moment someone reads from the wrong one.
 
 // JWTAuthConfig configures the JWT middleware. Issuer is optional; Secret
 // must be at least 32 bytes (the underlying jwtauth.NewVerifier enforces this).

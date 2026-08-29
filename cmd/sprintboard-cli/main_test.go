@@ -76,7 +76,7 @@ func seedStub(t *testing.T, dbPath, id, title string) {
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 	if _, err := store.RawDB().Exec(
 		`INSERT INTO tickets (id, title, status, priority, created_at, updated_at)
 		 VALUES (?, ?, 'backlog', 0, '0001-01-01T00:00:00Z', '0001-01-01T00:00:00Z')`,

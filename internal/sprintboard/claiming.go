@@ -54,7 +54,7 @@ func (s *Store) ClaimTicket(ticketID, agentID string) (ClaimResult, error) {
 	if err != nil {
 		return ClaimResult{}, fmt.Errorf("begin tx: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	var currentClaim, createdAtRaw sql.NullString
 	err = tx.QueryRow(

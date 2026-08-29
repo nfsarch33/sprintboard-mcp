@@ -263,7 +263,7 @@ func (s *Server) withMiddleware(h http.Handler) http.Handler {
 func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
 	if err := s.store.Ping(); err != nil {
 		w.WriteHeader(http.StatusServiceUnavailable)
-		json.NewEncoder(w).Encode(map[string]string{"status": "error", "error": err.Error()})
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "error", "error": err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -272,12 +272,12 @@ func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
 func (s *Server) handleReadyz(w http.ResponseWriter, _ *http.Request) {
 	if s.shutting.Load() {
 		w.WriteHeader(http.StatusServiceUnavailable)
-		json.NewEncoder(w).Encode(map[string]string{"status": "shutting_down"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "shutting_down"})
 		return
 	}
 	if err := s.store.Ping(); err != nil {
 		w.WriteHeader(http.StatusServiceUnavailable)
-		json.NewEncoder(w).Encode(map[string]string{"status": "error", "error": err.Error()})
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "error", "error": err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})

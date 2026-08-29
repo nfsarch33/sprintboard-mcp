@@ -42,13 +42,13 @@ func main() {
 	if err != nil {
 		log.Fatalf("open sqlite: %v", err)
 	}
-	defer srcDB.Close()
+	defer func() { _ = srcDB.Close() }()
 
 	dstDB, err := sql.Open("pgx", *pgDSN)
 	if err != nil {
 		log.Fatalf("open postgres: %v", err)
 	}
-	defer dstDB.Close()
+	defer func() { _ = dstDB.Close() }()
 
 	if err := dstDB.Ping(); err != nil {
 		log.Fatalf("ping postgres: %v", err)
@@ -56,6 +56,12 @@ func main() {
 
 	for _, table := range tables {
 		srcCount := countRows(srcDB, table)
+		if srcCount < 0 {
+			// countRows could not read the table. Distinct from "0 rows": we do
+			// not know what is there, so skipping would silently drop data.
+			log.Printf("%-25s: SKIPPED, source count unreadable", table)
+			continue
+		}
 		if srcCount == 0 {
 			log.Printf("%-25s: 0 rows (skip)", table)
 			continue
@@ -93,7 +99,12 @@ func resetSequences(db *sql.DB) {
 	}
 	for _, s := range seqs {
 		var maxID sql.NullInt64
-		db.QueryRow(fmt.Sprintf("SELECT MAX(%s) FROM %s", s.col, s.table)).Scan(&maxID)
+		// #nosec G201 -- table/column come from the hardcoded seqs list above,
+		// never from user input.
+		if err := db.QueryRow(fmt.Sprintf("SELECT MAX(%s) FROM %s", s.col, s.table)).Scan(&maxID); err != nil {
+			log.Printf("read max %s.%s: %v", s.table, s.col, err)
+			continue
+		}
 		if maxID.Valid && maxID.Int64 > 0 {
 			seqName := fmt.Sprintf("%s_%s_seq", s.table, s.col)
 			_, err := db.Exec(fmt.Sprintf("SELECT setval('%s', $1)", seqName), maxID.Int64)
@@ -106,9 +117,16 @@ func resetSequences(db *sql.DB) {
 	}
 }
 
+// countRows returns -1 when the count cannot be read. Returning 0 there
+// made a failed query indistinguishable from an empty table, which is exactly
+// the reading a migration verification must not get wrong.
 func countRows(db *sql.DB, table string) int {
 	var count int
-	db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s", table)).Scan(&count)
+	// #nosec G201 -- table names come from the migrator's own hardcoded list.
+	if err := db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s", table)).Scan(&count); err != nil {
+		log.Printf("count rows in %s: %v", table, err)
+		return -1
+	}
 	return count
 }
 
@@ -118,12 +136,14 @@ func copyTable(src, dst *sql.DB, table string) (int, error) {
 		return 0, fmt.Errorf("get columns: %w", err)
 	}
 
+	// #nosec G201 -- `table` comes from this migrator's hardcoded table list
+	// and `cols` from the driver's own column metadata; neither is user input.
 	selectQ := fmt.Sprintf("SELECT %s FROM %s", cols, table)
 	rows, err := src.Query(selectQ)
 	if err != nil {
 		return 0, fmt.Errorf("query source: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	colNames, err := rows.Columns()
 	if err != nil {
@@ -131,6 +151,8 @@ func copyTable(src, dst *sql.DB, table string) (int, error) {
 	}
 
 	placeholders := makePGPlaceholders(len(colNames))
+	// #nosec G201 -- same provenance as selectQ above; values are still bound
+	// as parameters via the generated placeholders.
 	insertQ := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s) ON CONFLICT DO NOTHING",
 		table, cols, placeholders)
 
@@ -138,7 +160,7 @@ func copyTable(src, dst *sql.DB, table string) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("begin tx: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	copied := 0
 	for rows.Next() {
@@ -168,7 +190,7 @@ func getColumns(db *sql.DB, table string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	cols, err := rows.Columns()
 	if err != nil {
@@ -176,9 +198,7 @@ func getColumns(db *sql.DB, table string) (string, error) {
 	}
 
 	quoted := make([]string, len(cols))
-	for i, c := range cols {
-		quoted[i] = c
-	}
+	copy(quoted, cols)
 	result := ""
 	for i, c := range quoted {
 		if i > 0 {

@@ -12,12 +12,12 @@ import (
 // Consumers (agentcore CLI, fleet-agent dashboards) avoid round-tripping four
 // endpoints to assemble a sprint dashboard.
 type SprintMetrics struct {
-	Sprint    sprintboard.Sprint                     `json:"sprint"`
-	ByStatus  map[sprintboard.TicketStatus]int       `json:"tickets_by_status"`
-	Total     int                                    `json:"total_tickets"`
-	SLAs      []sprintboard.SLA                      `json:"slas"`
-	Velocity  []sprintboard.AgentVelocity            `json:"velocity"`
-	Burndown  []sprintboard.BurndownPoint            `json:"burndown"`
+	Sprint   sprintboard.Sprint               `json:"sprint"`
+	ByStatus map[sprintboard.TicketStatus]int `json:"tickets_by_status"`
+	Total    int                              `json:"total_tickets"`
+	SLAs     []sprintboard.SLA                `json:"slas"`
+	Velocity []sprintboard.AgentVelocity      `json:"velocity"`
+	Burndown []sprintboard.BurndownPoint      `json:"burndown"`
 }
 
 func (s *Server) handleSprintMetrics(w http.ResponseWriter, r *http.Request) {

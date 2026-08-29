@@ -29,7 +29,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("open database: %v", err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	c, err := client.Dial(client.Options{
 		HostPort: *temporalAddr,

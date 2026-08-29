@@ -26,10 +26,15 @@ func Open(path string) (*Writer, error) {
 	if path == "" {
 		return nil, nil
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	// 0750/0600: these are per-service audit logs, readable only by the user
+	// running the process. Matches Store.Open's 0700 on the database directory.
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return nil, fmt.Errorf("ndjson: mkdir %s: %w", filepath.Dir(path), err)
 	}
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	// #nosec G304 -- opening a caller-supplied path is this constructor's entire
+	// purpose; the path comes from process configuration, never from request
+	// data. Callers that accept untrusted input must validate before calling.
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("ndjson: open %s: %w", path, err)
 	}
@@ -81,8 +86,20 @@ func AppendOne(path string, event any) error {
 	if w == nil {
 		return nil
 	}
-	defer w.Close()
-	return w.Append(event)
+	// Close is reported, not discarded. This writer backs an append-only audit
+	// log; a Close that fails (ENOSPC, I/O error) can lose the very line just
+	// appended, and returning nil there would tell the caller the event was
+	// durably recorded when it was not. Append's error still wins, since it is
+	// the more specific failure.
+	appendErr := w.Append(event)
+	closeErr := w.Close()
+	if appendErr != nil {
+		return appendErr
+	}
+	if closeErr != nil {
+		return fmt.Errorf("ndjson: close %s: %w", path, closeErr)
+	}
+	return nil
 }
 
 // Close releases the underlying writer. Safe on nil and idempotent.

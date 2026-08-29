@@ -84,14 +84,14 @@ func main() {
 		fmt.Fprintf(os.Stderr, "failed to open store: %v\n", err)
 		os.Exit(1)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	telemetry, err := mcptelemetry.New(mcptelemetry.DefaultConfig())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "telemetry init (non-fatal): %v\n", err)
 		telemetry, _ = mcptelemetry.New(mcptelemetry.Config{Enabled: false})
 	}
-	defer telemetry.Close()
+	defer func() { _ = telemetry.Close() }()
 
 	embedder := sprintboard.NewEmbedder(sprintboard.DefaultEmbedderConfig())
 
@@ -166,7 +166,7 @@ func (s *Server) serve(in io.Reader, out io.Writer) {
 
 		resp := s.handleRequest(req)
 		data, _ := json.Marshal(resp)
-		fmt.Fprintf(out, "%s\n", data)
+		_, _ = fmt.Fprintf(out, "%s\n", data)
 	}
 }
 
@@ -460,7 +460,9 @@ func (s *Server) sprintCreate(args json.RawMessage) (string, bool) {
 
 	text := p.Name + " " + p.Theme
 	if vec, embedErr := s.embedder.Embed(text); embedErr == nil {
-		s.store.StoreEmbedding("sprint", p.ID, vec)
+		if err := s.store.StoreEmbedding("sprint", p.ID, vec); err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "store sprint embedding %s: %v\n", p.ID, err)
+		}
 	}
 
 	return fmt.Sprintf("Sprint %q created (owner: %s)", p.ID, s.agentID), false
@@ -471,7 +473,7 @@ func (s *Server) sprintList(args json.RawMessage) (string, bool) {
 		Status string `json:"status"`
 	}
 	if len(args) > 0 {
-		json.Unmarshal(args, &p)
+		_ = json.Unmarshal(args, &p) // optional args; zero value is the documented fallback
 	}
 	sprints, err := s.store.ListSprints()
 	if err != nil {
@@ -568,7 +570,9 @@ func (s *Server) ticketCreate(args json.RawMessage) (string, bool) {
 	go func() {
 		text := p.Title + " " + p.Description
 		if vec, err := s.embedder.Embed(text); err == nil {
-			s.store.StoreEmbedding("ticket", p.ID, vec)
+			if err := s.store.StoreEmbedding("ticket", p.ID, vec); err != nil {
+				_, _ = fmt.Fprintf(os.Stderr, "store ticket embedding %s: %v\n", p.ID, err)
+			}
 		}
 	}()
 
@@ -581,7 +585,7 @@ func (s *Server) ticketList(args json.RawMessage) (string, bool) {
 		Status   string `json:"status"`
 		Owner    string `json:"owner"`
 	}
-	json.Unmarshal(args, &p)
+	_ = json.Unmarshal(args, &p) // optional args; zero value is the documented fallback
 
 	tickets, err := s.store.ListTickets(p.SprintID)
 	if err != nil {
@@ -1155,6 +1159,9 @@ func (s *Server) sprintDistribute(args json.RawMessage) (string, bool) {
 		Reason   string `json:"reason"`
 	}
 	var assignments []assignment
+	// Tickets whose AssignTicket write failed. Reported separately so the
+	// caller can tell a partial distribution from a complete one.
+	failed := []string{}
 
 	agentIdx := 0
 	for _, t := range tickets {
@@ -1165,12 +1172,19 @@ func (s *Server) sprintDistribute(args json.RawMessage) (string, bool) {
 			break
 		}
 		a := agents[agentIdx%len(agents)]
+		// Record the assignment only after the write lands. Appending first
+		// and discarding the error made this tool report tickets as assigned
+		// that were never actually assigned.
+		if err := s.store.AssignTicket(t.ID, a.ID); err != nil {
+			failed = append(failed, fmt.Sprintf("%s: %v", t.ID, err))
+			agentIdx++
+			continue
+		}
 		assignments = append(assignments, assignment{
 			TicketID: t.ID,
 			AgentID:  a.ID,
 			Reason:   "round-robin distribution",
 		})
-		s.store.AssignTicket(t.ID, a.ID)
 		agentIdx++
 	}
 
@@ -1178,6 +1192,7 @@ func (s *Server) sprintDistribute(args json.RawMessage) (string, bool) {
 		"sprint_id":   p.SprintID,
 		"assigned":    len(assignments),
 		"assignments": assignments,
+		"failed":      failed,
 	}, "", "  ")
 	return string(data), false
 }
@@ -1229,7 +1244,7 @@ func (s *Server) agentList(args json.RawMessage) (string, bool) {
 	var p struct {
 		IncludeExpired bool `json:"include_expired"`
 	}
-	json.Unmarshal(args, &p)
+	_ = json.Unmarshal(args, &p) // optional args; zero value is the documented fallback
 
 	var agents []sprintboard.Agent
 	var err error

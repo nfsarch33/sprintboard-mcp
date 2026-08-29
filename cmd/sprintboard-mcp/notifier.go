@@ -53,8 +53,8 @@ func NewHTTPNotifier(url string, timeout time.Duration) Notifier {
 // latency or failure.
 func (h *httpNotifier) Notify(event string, payload map[string]any) {
 	envelope := map[string]any{
-		"event":     event,
-		"payload":   payload,
+		"event":      event,
+		"payload":    payload,
 		"emitted_at": time.Now().UTC().Format(time.RFC3339Nano),
 	}
 	body, err := json.Marshal(envelope)
@@ -76,7 +76,7 @@ func (h *httpNotifier) post(body []byte) {
 	if err != nil {
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 }
 
 // resolveNotifier returns the Notifier configured via env (`SPRINTBOARD_WEBHOOK_URL`).

@@ -2,12 +2,12 @@ package api
 
 import (
 	"encoding/json"
-	"time"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"log/slog"
 
@@ -98,7 +98,6 @@ func TestStorePing(t *testing.T) {
 		t.Fatalf("ping failed: %v", err)
 	}
 }
-
 
 // TestHandleHealthz_RepeatedCallsNoLeak (v14597, closes CF-v14590-01)
 // proves that calling /healthz repeatedly does NOT leak the SQLite

@@ -14,7 +14,7 @@ func TestFleetReportHistoryTool(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	_, err = store.InsertFleetPROutcome(sprintboard.FleetPROutcome{
 		Host:     "wsl2",

@@ -13,10 +13,10 @@ func TestSetTicketEstimate(t *testing.T) {
 	}
 
 	ticket := Ticket{
-		ID:       "est-1",
-		SprintID: sp.ID,
-		Title:    "estimate test",
-		Status:   StatusBacklog,
+		ID:        "est-1",
+		SprintID:  sp.ID,
+		Title:     "estimate test",
+		Status:    StatusBacklog,
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
