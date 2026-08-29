@@ -20,6 +20,7 @@ type Metrics struct {
 	TicketsCreated    atomic.Uint64
 	TicketsClaimed    atomic.Uint64
 	TicketsCompleted  atomic.Uint64
+	TicketsResolved   atomic.Uint64
 	AgentsRegistered  atomic.Uint64
 	HandoffsPublished atomic.Uint64
 	CommentsAdded     atomic.Uint64
@@ -32,6 +33,7 @@ func NewMetrics() *Metrics { return &Metrics{} }
 func (m *Metrics) IncTicketsCreated()    { m.TicketsCreated.Add(1) }
 func (m *Metrics) IncTicketsClaimed()    { m.TicketsClaimed.Add(1) }
 func (m *Metrics) IncTicketsCompleted()  { m.TicketsCompleted.Add(1) }
+func (m *Metrics) IncTicketsResolved()   { m.TicketsResolved.Add(1) }
 func (m *Metrics) IncAgentsRegistered()  { m.AgentsRegistered.Add(1) }
 func (m *Metrics) IncHandoffsPublished() { m.HandoffsPublished.Add(1) }
 func (m *Metrics) IncCommentsAdded()     { m.CommentsAdded.Add(1) }
@@ -49,6 +51,7 @@ func (m *Metrics) WritePrometheus(w io.Writer) error {
 		{"sprintboard_tickets_created_total", "Tickets created since process start.", m.TicketsCreated.Load()},
 		{"sprintboard_tickets_claimed_total", "Tickets claimed since process start.", m.TicketsClaimed.Load()},
 		{"sprintboard_tickets_completed_total", "Tickets completed since process start.", m.TicketsCompleted.Load()},
+		{"sprintboard_tickets_resolved_total", "Tickets closed by a human via the resolve route since process start.", m.TicketsResolved.Load()},
 		{"sprintboard_agents_registered_total", "Agents registered since process start.", m.AgentsRegistered.Load()},
 		{"sprintboard_handoffs_published_total", "Handoffs published since process start.", m.HandoffsPublished.Load()},
 		{"sprintboard_comments_added_total", "Ticket comments added since process start.", m.CommentsAdded.Load()},
@@ -64,6 +67,16 @@ func (m *Metrics) WritePrometheus(w io.Writer) error {
 		}
 	}
 	return nil
+}
+
+// WriteGauge emits one gauge in the same text format WritePrometheus uses, so
+// the HELP/TYPE layout stays byte-identical across every series this endpoint
+// exports. Callers use it for values read from the database at scrape time,
+// which cannot live in the process-lifetime counters above.
+func WriteGauge(w io.Writer, name, help string, value float64) error {
+	_, err := fmt.Fprintf(w, "# HELP %s %s\n# TYPE %s gauge\n%s %g\n",
+		name, help, name, name, value)
+	return err
 }
 
 // guard against unused import warnings.

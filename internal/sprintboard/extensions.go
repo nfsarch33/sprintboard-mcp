@@ -7,7 +7,7 @@ import (
 )
 
 // MarshalJSON omits zero-valued time.Time fields so JSON consumers see
-// `due_date`, `claimed_at`, `completed_at` only when populated.
+// `due_date`, `claimed_at`, `completed_at`, `resolved_at` only when populated.
 func (t Ticket) MarshalJSON() ([]byte, error) {
 	type ticketAlias Ticket
 	out := struct {
@@ -15,6 +15,7 @@ func (t Ticket) MarshalJSON() ([]byte, error) {
 		DueDate     *time.Time `json:"due_date,omitempty"`
 		ClaimedAt   *time.Time `json:"claimed_at,omitempty"`
 		CompletedAt *time.Time `json:"completed_at,omitempty"`
+		ResolvedAt  *time.Time `json:"resolved_at,omitempty"`
 	}{ticketAlias: (*ticketAlias)(&t)}
 	if !t.DueDate.IsZero() {
 		v := t.DueDate
@@ -27,6 +28,10 @@ func (t Ticket) MarshalJSON() ([]byte, error) {
 	if !t.CompletedAt.IsZero() {
 		v := t.CompletedAt
 		out.CompletedAt = &v
+	}
+	if !t.ResolvedAt.IsZero() {
+		v := t.ResolvedAt
+		out.ResolvedAt = &v
 	}
 	return json.Marshal(out)
 }

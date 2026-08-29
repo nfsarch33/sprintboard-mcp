@@ -37,12 +37,19 @@ func (s *Store) GetSprintBurndown(sprintID string) (*BurndownEntry, error) {
 	entry.SprintID = sprintID
 	entry.Timestamp = time.Now().Format(time.RFC3339)
 
+	// "Done" here means closed, not delivered: a human-resolved ticket counts
+	// against the burndown alongside a completed one. Excluding it would leave
+	// its estimate in RemainingEstimate forever, so a sprint containing one
+	// escalation nobody will ever finish could never burn down to zero -- the
+	// same class of "closed thing still reads as open" bug that made this
+	// status necessary in the first place. Cycle-time analytics keeps the two
+	// apart by reading transitions to 'done', not this count.
 	err := s.db.QueryRow(`
-		SELECT 
+		SELECT
 			COALESCE(SUM(estimate_hours), 0),
-			COALESCE(SUM(CASE WHEN status = 'done' THEN estimate_hours ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN status IN `+terminalStatusSQL+` THEN estimate_hours ELSE 0 END), 0),
 			COUNT(*),
-			SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END)
+			SUM(CASE WHEN status IN `+terminalStatusSQL+` THEN 1 ELSE 0 END)
 		FROM tickets WHERE sprint_id = ?
 	`, sprintID).Scan(
 		&entry.TotalEstimate,

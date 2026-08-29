@@ -2,10 +2,12 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -83,6 +85,13 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/v1/sprints/{id}/slas", s.handleSprintSLAs)
 	s.mux.HandleFunc("POST /api/v1/tickets/{id}/claim", s.handleTicketClaim)
 	s.mux.HandleFunc("POST /api/v1/tickets/{id}/complete", s.handleTicketComplete)
+	// Human close path for escalated tickets. Separate from /complete on
+	// purpose -- see handleTicketResolve and sprintboard.ResolveTicket.
+	s.mux.HandleFunc("POST /api/v1/tickets/{id}/resolve", s.handleTicketResolve)
+	// Registered before the {id} pattern is irrelevant to ServeMux -- the
+	// literal segment is the more specific pattern and wins regardless, the
+	// same way /api/v1/tickets/search already does.
+	s.mux.HandleFunc("GET /api/v1/tickets/stale", s.handleStaleTickets)
 	s.mux.HandleFunc("GET /api/v1/agents", s.handleAgentList)
 	s.mux.HandleFunc("POST /api/v1/agents", s.handleAgentRegister)
 	s.mux.HandleFunc("POST /api/v1/handoffs", s.handleHandoffPublish)
@@ -296,6 +305,38 @@ func (s *Server) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	_ = s.metrics.WritePrometheus(w)
+	s.writeInProgressGauges(w)
+}
+
+// writeInProgressGauges exports the board state an alert on abandoned work
+// needs. The counters above are process-lifetime totals and reset on restart;
+// "this ticket has been in_progress for two days" is a property of the
+// database, so it has to be read at scrape time.
+//
+// No threshold is baked in: the exporter reports the oldest age and the rule
+// decides what is too old. An alert is then
+//
+//	sprintboard_tickets_in_progress_oldest_age_seconds > 24 * 3600
+//
+// On a query error the gauges are OMITTED rather than emitted as zero. Zero
+// here reads as "nothing is stuck", which is precisely the false all-clear
+// that must not survive a broken database -- absent() catches the gap instead.
+func (s *Server) writeInProgressGauges(w io.Writer) {
+	open, err := s.store.StaleInProgress(0)
+	if err != nil {
+		s.logger.Error("in-progress gauges omitted from /metrics", "error", err)
+		return
+	}
+	var oldest float64
+	for _, t := range open {
+		if age := float64(t.AgeSeconds); age > oldest {
+			oldest = age
+		}
+	}
+	_ = sprintboard.WriteGauge(w, "sprintboard_tickets_in_progress",
+		"Tickets currently in_progress.", float64(len(open)))
+	_ = sprintboard.WriteGauge(w, "sprintboard_tickets_in_progress_oldest_age_seconds",
+		"Age of the longest-running in_progress claim, in seconds. 0 when none are open.", oldest)
 }
 
 func (s *Server) handleSprintCreate(w http.ResponseWriter, r *http.Request) {
@@ -486,6 +527,88 @@ func (s *Server) handleTicketComplete(w http.ResponseWriter, r *http.Request) {
 	s.metrics.IncTicketsCompleted()
 	writeJSON(w, http.StatusOK, map[string]string{"id": id, "status": "done"})
 }
+
+// handleTicketResolve closes a ticket on a human's behalf.
+//
+// This is the human end of the escalation loop. When the fleet agent cannot
+// finish a ticket it deliberately does not fabricate a completion: it leaves
+// the ticket in_progress, comments the failure evidence, and stops. Until this
+// route existed the board offered that human nothing -- /complete demands
+// agent_id == claimer, so the only way to close an escalation was to
+// impersonate the agent that raised it, and in practice escalated tickets just
+// accumulated as permanent in_progress rows.
+//
+// The claimer-only guard on /complete is NOT relaxed to make this work. That
+// guard is correct for the agent path and stays exactly as it was; resolution
+// is a different verb with a different terminal status, so the board can still
+// tell delivered work from written-off work.
+func (s *Server) handleTicketResolve(w http.ResponseWriter, r *http.Request) {
+	defer drainAndClose(r)
+	id := r.PathValue("id")
+	var req struct {
+		Actor  string `json:"actor"`
+		Reason string `json:"reason"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	if req.Actor == "" || req.Reason == "" {
+		writeErr(w, http.StatusBadRequest, fmt.Errorf("actor and reason are required"))
+		return
+	}
+
+	ticket, err := s.store.ResolveTicket(id, req.Actor, req.Reason)
+	if err != nil {
+		switch {
+		case errors.Is(err, sprintboard.ErrTicketNotFound):
+			writeErr(w, http.StatusNotFound, err)
+		case errors.Is(err, sprintboard.ErrTicketTerminal):
+			writeErr(w, http.StatusConflict, err)
+		default:
+			writeErr(w, http.StatusInternalServerError, err)
+		}
+		return
+	}
+	s.metrics.IncTicketsResolved()
+	writeJSON(w, http.StatusOK, ticket)
+}
+
+// handleStaleTickets is the board view for work that stopped moving:
+// in_progress tickets whose claim is at least `hours` old, longest first.
+//
+// AgentStalled cannot cover this. It treats an escalation as a terminal
+// outcome for the agent -- correctly, since the agent is meant to stop -- so
+// the ticket the agent handed over is invisible to it from that moment on.
+// This route watches the ticket instead of the agent.
+func (s *Server) handleStaleTickets(w http.ResponseWriter, r *http.Request) {
+	hours := float64(defaultStaleHours)
+	if raw := r.URL.Query().Get("hours"); raw != "" {
+		parsed, err := strconv.ParseFloat(raw, 64)
+		if err != nil || parsed < 0 {
+			writeErr(w, http.StatusBadRequest, fmt.Errorf("hours must be a non-negative number"))
+			return
+		}
+		hours = parsed
+	}
+
+	stale, err := s.store.StaleInProgress(time.Duration(hours * float64(time.Hour)))
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"threshold_hours": hours,
+		"count":           len(stale),
+		"tickets":         stale,
+	})
+}
+
+// defaultStaleHours is the window GET /api/v1/tickets/stale uses when the
+// caller does not pass one. A day is long enough that an agent working
+// normally never appears, and short enough that an escalation raised
+// overnight is visible by morning.
+const defaultStaleHours = 24
 
 func (s *Server) handleAgentList(w http.ResponseWriter, _ *http.Request) {
 	agents, err := s.store.ListActiveAgents()
