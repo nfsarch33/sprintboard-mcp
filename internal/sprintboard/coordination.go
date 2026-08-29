@@ -1,11 +1,7 @@
 package sprintboard
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
-	"net/http"
-	"os"
 	"time"
 )
 
@@ -40,10 +36,11 @@ func (s *Store) PublishHandoff(h CoordinationHandoff) (int64, error) {
 		}
 	}
 
-	if err := bridgeToMem0(h); err != nil {
-		fmt.Fprintf(os.Stderr, "mem0 bridge failed (non-fatal): %v\n", err)
-	}
-
+	// The handoffs table is the durable record. A best-effort bridge to an
+	// external memory service used to run here; it was removed with the Mem0
+	// retirement (see the commit that introduced this comment). Any future
+	// bridge belongs behind an explicit interface with its own tests, not as
+	// an unowned side effect of an insert.
 	return id, nil
 }
 
@@ -73,56 +70,19 @@ func (s *Store) SubscribeHandoffs(agentID string, since time.Time) ([]Coordinati
 	return handoffs, rows.Err()
 }
 
-func bridgeToMem0(h CoordinationHandoff) error {
-	mem0URL := os.Getenv("MEM0_BASE_URL")
-	mem0Key := os.Getenv("MEM0_API_KEY")
-	if mem0URL == "" {
-		return nil
-	}
-
-	payload := map[string]interface{}{
-		"messages": []map[string]string{
-			{
-				"role":    "user",
-				"content": fmt.Sprintf("handoff from %s to %s: %s (ticket: %s)", h.FromAgent, h.ToAgent, h.Summary, h.TicketID),
-			},
-		},
-		"user_id": "nfsarch33",
-		"app_id":  "cursor-coordination",
-		"infer":   false,
-	}
-
-	body, _ := json.Marshal(payload)
-	// #nosec G704 -- the target is read from process configuration, never
-	// from request data, and this function returns early when it is unset.
-	// NOTE: this Mem0 bridge is slated for removal in favour of Engram; it is
-	// annotated rather than hardened because the code should not survive.
-	req, _ := http.NewRequest("POST", mem0URL+"/memories", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	if mem0Key != "" {
-		req.Header.Set("X-API-Key", mem0Key)
-	}
-
-	client := &http.Client{Timeout: mem0BridgeTimeout()}
-	// #nosec G704 -- same provenance as the request construction above: the
-	// destination is operator configuration, not attacker-controlled input.
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		return fmt.Errorf("mem0 returned %d", resp.StatusCode)
-	}
-	return nil
-}
-
-func mem0BridgeTimeout() time.Duration {
-	if raw := os.Getenv("MEM0_TIMEOUT"); raw != "" {
-		if parsed, err := time.ParseDuration(raw); err == nil {
-			return parsed
-		}
-	}
-	return 5 * time.Second
-}
+// The external memory bridge that lived here (bridgeToMem0 /
+// mem0BridgeTimeout, reading MEM0_BASE_URL, MEM0_API_KEY and MEM0_TIMEOUT)
+// has been removed. Mem0 is retired in favour of Engram, and this code was
+// unreachable in practice: no MEM0_* variable is set for any process on any
+// fleet node, so the function returned nil on its first line every time.
+//
+// It was not merely dead. It was the only outbound HTTP call in this package
+// and carried both of the repository's HIGH-severity gosec findings (G704,
+// SSRF via taint analysis) for a request that could never be sent.
+//
+// A replacement Engram bridge is deliberately NOT written here. Publishing a
+// handoff to an external memory service is a separate concern from inserting
+// a row, and hiding it inside PublishHandoff as an unowned, error-swallowing
+// side effect is what made this hard to remove. If one is wanted, it belongs
+// behind an explicit interface on Store with its own tests and its own
+// failure semantics.

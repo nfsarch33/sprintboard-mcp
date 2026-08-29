@@ -70,7 +70,7 @@ func TestSprintReadsTolerateNullOwnerAgent(t *testing.T) {
 	s := testStore(t)
 	if err := s.CreateSprint(Sprint{
 		ID:     "v7101",
-		Name:   "Mem0 Production Gate",
+		Name:   "Memory Service Production Gate",
 		Status: SprintPlanned,
 		Theme:  "coordination",
 	}); err != nil {
