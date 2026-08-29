@@ -204,6 +204,7 @@ func (s *Server) handleToolsList(req JSONRPCRequest) JSONRPCResponse {
 		{Name: "ticket_create", Description: "Create a ticket in a sprint", InputSchema: ticketCreateSchema()},
 		{Name: "ticket_list", Description: "List tickets filtered by sprint, status, or owner", InputSchema: ticketListSchema()},
 		{Name: "ticket_update", Description: "Update ticket status with transition tracking", InputSchema: ticketUpdateSchema()},
+		{Name: "ticket_resolve", Description: "Close an escalated ticket on a human's behalf, recording who closed it and why (does not require being the claimer)", InputSchema: ticketResolveSchema()},
 		{Name: "ticket_assign", Description: "Assign a ticket to an agent", InputSchema: ticketAssignSchema()},
 		{Name: "handoff_create", Description: "Create a handoff record for a ticket", InputSchema: handoffCreateSchema()},
 		{Name: "handoff_list", Description: "List handoffs by ticket_id or agent_id", InputSchema: handoffListSchema()},
@@ -315,6 +316,8 @@ func (s *Server) dispatchInner(tool string, args json.RawMessage) (string, bool)
 		return s.ticketList(args)
 	case "ticket_update":
 		return s.ticketUpdate(args)
+	case "ticket_resolve":
+		return s.ticketResolve(args)
 	case "ticket_assign":
 		return s.ticketAssign(args)
 	case "handoff_create":
@@ -626,6 +629,30 @@ func (s *Server) ticketUpdate(args json.RawMessage) (string, bool) {
 	return fmt.Sprintf("Ticket %q -> %s (by %s)", p.ID, p.Status, s.agentID), false
 }
 
+// ticketResolve is the human close path for an escalated ticket, mirroring
+// POST /api/v1/tickets/{id}/resolve. It exists alongside ticket_update
+// because ticket_update sets a bare status and records nothing: this writes
+// the actor and the reason, which is what makes an escalation auditable
+// rather than merely closed.
+func (s *Server) ticketResolve(args json.RawMessage) (string, bool) {
+	var p struct {
+		ID     string `json:"id"`
+		Actor  string `json:"actor"`
+		Reason string `json:"reason"`
+	}
+	if err := json.Unmarshal(args, &p); err != nil {
+		return err.Error(), true
+	}
+	actor := p.Actor
+	if actor == "" {
+		actor = s.agentID
+	}
+	if _, err := s.store.ResolveTicket(p.ID, actor, p.Reason); err != nil {
+		return err.Error(), true
+	}
+	return fmt.Sprintf("Ticket %q resolved by %s: %s", p.ID, actor, p.Reason), false
+}
+
 func (s *Server) ticketAssign(args json.RawMessage) (string, bool) {
 	var p struct {
 		ID    string `json:"id"`
@@ -776,6 +803,18 @@ func ticketUpdateSchema() map[string]interface{} {
 			"note":   map[string]string{"type": "string", "description": "Transition note"},
 		},
 		"required": []string{"id", "status"},
+	}
+}
+
+func ticketResolveSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"id":     map[string]string{"type": "string", "description": "Ticket ID"},
+			"actor":  map[string]string{"type": "string", "description": "Person closing the ticket. Defaults to this MCP server's agent id."},
+			"reason": map[string]string{"type": "string", "description": "Why it is being closed. Required: it is the answer to the agent's escalation comment."},
+		},
+		"required": []string{"id", "reason"},
 	}
 }
 

@@ -50,7 +50,11 @@ func (s *Store) AgentWorkload(sprintID string) ([]AgentWorkloadEntry, error) {
 		}
 		entry.TotalAssigned++
 		switch TicketStatus(status) {
-		case StatusDone:
+		// A human-resolved ticket is closed, so it counts here rather than
+		// falling through to the default. Landing in QueuedTickets would make
+		// an abandoned escalation look like pending work against its agent for
+		// as long as the board exists.
+		case StatusDone, StatusResolvedByHuman:
 			entry.DoneTickets++
 		case StatusBlocked:
 			entry.BlockedTickets++

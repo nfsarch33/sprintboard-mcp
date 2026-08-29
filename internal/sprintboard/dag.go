@@ -48,9 +48,12 @@ func (s *Store) RemoveDependency(ticketID, dependsOn string) error {
 
 func (s *Store) BlockedBy(ticketID string) ([]string, error) {
 	rows, err := s.db.Query(
+		// A blocker is anything not yet in a terminal state. A ticket a human
+		// resolved is finished with, so it must stop blocking its dependents
+		// exactly as a completed one does.
 		`SELECT d.depends_on FROM ticket_dependencies d
 		 JOIN tickets t ON d.depends_on = t.id
-		 WHERE d.ticket_id = ? AND t.status != 'done'`,
+		 WHERE d.ticket_id = ? AND t.status NOT IN `+terminalStatusSQL,
 		ticketID,
 	)
 	if err != nil {
@@ -80,7 +83,7 @@ func (s *Store) ReadyTickets(sprintID string) ([]Ticket, error) {
 		  AND NOT EXISTS (
 			SELECT 1 FROM ticket_dependencies d
 			JOIN tickets dep ON d.depends_on = dep.id
-			WHERE d.ticket_id = t.id AND dep.status != 'done'
+			WHERE d.ticket_id = t.id AND dep.status NOT IN ` + terminalStatusSQL + `
 		  )
 		ORDER BY t.priority DESC`
 

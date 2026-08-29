@@ -22,7 +22,28 @@ const (
 	StatusDone         TicketStatus = "done"
 	StatusBlocked      TicketStatus = "blocked"
 	StatusReadyHandoff TicketStatus = "ready_for_handoff"
+
+	// StatusResolvedByHuman closes a ticket that a person closed on the
+	// agent's behalf. It is deliberately NOT StatusDone: an agent that
+	// escalates leaves the ticket in_progress with its failure evidence in a
+	// comment, and folding that outcome into "done" would erase the
+	// distinction between work an agent delivered and work a human wrote off.
+	// Both are terminal; only one is a delivery. See ResolveTicket.
+	StatusResolvedByHuman TicketStatus = "resolved_by_human"
 )
+
+// terminalStatusSQL is the SQL literal list of statuses that close a ticket
+// for good. It is inlined into queries rather than parameterised so it can be
+// dropped into any WHERE clause without disturbing the positional argument
+// numbering that the postgres placeholder rewriter depends on. Adding a
+// terminal status means editing this list and IsTerminal together.
+const terminalStatusSQL = `('done', 'resolved_by_human')`
+
+// IsTerminal reports whether the status is a closed state that no agent
+// should pick the ticket up from again. The Go-side twin of terminalStatusSQL.
+func (t TicketStatus) IsTerminal() bool {
+	return t == StatusDone || t == StatusResolvedByHuman
+}
 
 type SprintStatus string
 
@@ -65,6 +86,13 @@ type Ticket struct {
 	CreatedAt          time.Time    `json:"created_at"`
 	UpdatedAt          time.Time    `json:"updated_at"`
 	TenantID           string       `json:"tenant_id,omitempty"` // v18680-3: multi-tenancy
+
+	// Human resolution audit (StatusResolvedByHuman). Populated only by
+	// ResolveTicket, so an operator listing tickets can see who closed an
+	// escalation and why without a second call for the transition history.
+	ResolvedBy       string    `json:"resolved_by,omitempty"`
+	ResolutionReason string    `json:"resolution_reason,omitempty"`
+	ResolvedAt       time.Time `json:"-"` // emitted by MarshalJSON when set
 }
 
 type Transition struct {
@@ -279,6 +307,7 @@ func (s *Store) migrate() error {
 		{"fleet-report-snapshots", s.migrateFleetReportSnapshots},
 		{"terminal-session-events", s.migrateTerminalSessionEvents},
 		{"eval-run-snapshots", s.migrateEvalRunSnapshots},
+		{"resolution", s.migrateResolution},
 		{"fleet-pr-outcomes", s.migrateFleetPROutcomes},
 	}
 	for _, step := range steps {
@@ -557,7 +586,7 @@ func (s *Store) queryTicketsFiltered(sprintID, tenantID string) ([]Ticket, error
 }
 
 func (s *Store) ListTickets(sprintID string) ([]Ticket, error) {
-	query := `SELECT id, sprint_id, title, description, status, owner_agent, priority, acceptance_criteria, handoff_doc_path, due_date, labels, claimed_by, claimed_at, completed_at, branch, pr_url, merged_at, created_at, updated_at, tenant_id FROM tickets`
+	query := `SELECT id, sprint_id, title, description, status, owner_agent, priority, acceptance_criteria, handoff_doc_path, due_date, labels, claimed_by, claimed_at, completed_at, branch, pr_url, merged_at, created_at, updated_at, tenant_id, resolved_by, resolved_at, resolution_reason FROM tickets`
 	var args []interface{}
 	if sprintID != "" {
 		query += ` WHERE sprint_id = ?`
@@ -578,14 +607,19 @@ func (s *Store) ListTickets(sprintID string) ([]Ticket, error) {
 		var sprintID, description, ownerAgent, acceptanceCriteria, handoffDocPath sql.NullString
 		var dueDate, labelsRaw, claimedBy, claimedAt, completedAt sql.NullString
 		var branch, prURL, mergedAt, tenant sql.NullString
+		var resolvedBy, resolvedAt, resolutionReason sql.NullString
 		err := rows.Scan(&t.ID, &sprintID, &t.Title, &description, &t.Status,
 			&ownerAgent, &t.Priority, &acceptanceCriteria, &handoffDocPath,
 			&dueDate, &labelsRaw, &claimedBy, &claimedAt, &completedAt,
 			&branch, &prURL, &mergedAt,
-			&createdAt, &updatedAt, &tenant)
+			&createdAt, &updatedAt, &tenant,
+			&resolvedBy, &resolvedAt, &resolutionReason)
 		if err != nil {
 			return nil, err
 		}
+		t.ResolvedBy = nullString(resolvedBy)
+		t.ResolvedAt = parseTime(nullString(resolvedAt))
+		t.ResolutionReason = nullString(resolutionReason)
 		t.SprintID = nullString(sprintID)
 		t.Description = nullString(description)
 		t.OwnerAgent = nullString(ownerAgent)
@@ -829,17 +863,22 @@ func (s *Store) GetTicket(id string) (Ticket, error) {
 	var sprintID, description, ownerAgent, acceptanceCriteria, handoffDocPath sql.NullString
 	var dueDate, labelsRaw, claimedBy, claimedAt, completedAt sql.NullString
 	var branch, prURL, mergedAt, tenant sql.NullString
+	var resolvedBy, resolvedAt, resolutionReason sql.NullString
 	err := s.db.QueryRow(
-		`SELECT id, sprint_id, title, description, status, owner_agent, priority, acceptance_criteria, handoff_doc_path, due_date, labels, claimed_by, claimed_at, completed_at, branch, pr_url, merged_at, created_at, updated_at, tenant_id
+		`SELECT id, sprint_id, title, description, status, owner_agent, priority, acceptance_criteria, handoff_doc_path, due_date, labels, claimed_by, claimed_at, completed_at, branch, pr_url, merged_at, created_at, updated_at, tenant_id, resolved_by, resolved_at, resolution_reason
 		 FROM tickets WHERE id = ?`, id,
 	).Scan(&t.ID, &sprintID, &t.Title, &description, &t.Status,
 		&ownerAgent, &t.Priority, &acceptanceCriteria, &handoffDocPath,
 		&dueDate, &labelsRaw, &claimedBy, &claimedAt, &completedAt,
 		&branch, &prURL, &mergedAt,
-		&createdAt, &updatedAt, &tenant)
+		&createdAt, &updatedAt, &tenant,
+		&resolvedBy, &resolvedAt, &resolutionReason)
 	if err != nil {
 		return Ticket{}, fmt.Errorf("ticket %q not found: %w", id, err)
 	}
+	t.ResolvedBy = nullString(resolvedBy)
+	t.ResolvedAt = parseTime(nullString(resolvedAt))
+	t.ResolutionReason = nullString(resolutionReason)
 	t.SprintID = nullString(sprintID)
 	t.Description = nullString(description)
 	t.OwnerAgent = nullString(ownerAgent)
