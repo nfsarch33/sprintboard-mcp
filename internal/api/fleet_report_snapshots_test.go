@@ -18,7 +18,7 @@ func TestFleetReportSnapshotCreate(t *testing.T) {
 		"payload": {"agentrace_total_tokens": 0, "minimax_tokens": 0}
 	}`
 	resp := postJSON(t, ts.URL+"/api/v1/fleet-reports/snapshots", body)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("status = %d, want 201", resp.StatusCode)
 	}

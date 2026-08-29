@@ -102,7 +102,7 @@ func (s *Server) contextSummary(args json.RawMessage) (string, bool) {
 		Depth int `json:"depth"`
 	}
 	if len(args) > 0 {
-		json.Unmarshal(args, &p)
+		_ = json.Unmarshal(args, &p) // optional args; zero value is the documented fallback
 	}
 	if p.Depth == 0 {
 		p.Depth = 1

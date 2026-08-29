@@ -25,9 +25,10 @@ jobs:
         with:
           go-version-file: go.mod
       - run: go vet ./...
-      # Pinned to the same version used for local verification so CI and a
-      # developer's run cannot disagree about what is a finding. The action's
-      # default is a v1 line, which does not understand a `go 1.25.0` directive.
+      # Pinned to the version used for local verification so CI and a developer
+      # cannot disagree about what counts as a finding. The action's default is
+      # a v1 line, which does not understand this module's go directive and
+      # would report a toolchain error as if it were a lint verdict.
       - uses: golangci/golangci-lint-action@v7
         with:
           version: v2.13.0
@@ -51,9 +52,32 @@ jobs:
           total=$(go tool cover -func=coverage.out | tail -1 | awk '{print $3}' | tr -d '%')
           echo "Total coverage: ${total}%"
           if [ "$(echo "$total < 70" | bc)" -eq 1 ]; then
-            echo "::warning::Coverage ${total}% is below 70% threshold"
+            echo "::error::Coverage ${total}% is below the 70% threshold"
             exit 1
           fi
+
+  # Integration suite. The ginkgo specs in internal/sprintboard carry a
+  # `//go:build integration` tag, so `go test ./...` silently skips them --
+  # they had never run in GitHub CI. This job is what makes them a gate.
+  integration:
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Assert the integration tag actually selects specs
+        run: |
+          # A tagged suite that compiles to zero tests passes vacuously, which
+          # is indistinguishable from a green run. Fail if nothing is selected.
+          count=$(grep -rl 'go:build integration' --include='*.go' . | wc -l)
+          echo "files behind the integration tag: ${count}"
+          if [ "$count" -eq 0 ]; then
+            echo "::error::no integration-tagged files found; this job would pass vacuously"
+            exit 1
+          fi
+      - run: go test -tags=integration -race -count=1 ./...
 
   build:
     runs-on: ubuntu-latest
@@ -76,7 +100,26 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+
+      # Both scanners are PINNED, never @latest. A scanner that changes version
+      # under a blocking gate turns main red on someone else's release schedule
+      # rather than on a change to this repo.
       - name: govulncheck
-        run: go install golang.org/x/vuln/cmd/govulncheck@latest && govulncheck ./...
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
+          set +e
+          out=$(govulncheck ./... 2>&1); rc=$?
+          echo "$out"
+          # A govulncheck built against a different Go than the one running
+          # `go list` loads ZERO packages and still exits 0 -- a scan that
+          # found nothing because it examined nothing. Treat that as a failure.
+          if echo "$out" | grep -q 'Loading packages failed'; then
+            echo "::error::govulncheck could not load packages; this is a false green, not a clean scan"
+            exit 1
+          fi
+          exit $rc
+
       - name: gosec
-        run: go install github.com/securego/gosec/v2/cmd/gosec@latest && gosec -quiet ./...
+        run: |
+          go install github.com/securego/gosec/v2/cmd/gosec@v2.29.0
+          gosec -quiet ./...

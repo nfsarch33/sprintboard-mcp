@@ -72,8 +72,8 @@ func startMCP(t *testing.T, bin string) *mcpClient {
 		t.Fatalf("start: %v", err)
 	}
 	t.Cleanup(func() {
-		stdin.Close()
-		cmd.Wait()
+		_ = stdin.Close()
+		_ = cmd.Wait()
 	})
 
 	return &mcpClient{cmd: cmd, stdin: stdin, reader: bufio.NewScanner(stdout), nextID: 1}

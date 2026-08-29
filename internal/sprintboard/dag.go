@@ -202,7 +202,7 @@ func (s *Store) dfsHasPath(from, to string, visited map[string]bool) bool {
 		}
 		neighbors = append(neighbors, dep)
 	}
-	rows.Close()
+	_ = rows.Close()
 
 	for _, dep := range neighbors {
 		if s.dfsHasPath(dep, to, visited) {

@@ -127,12 +127,12 @@ func Open(dbPath string) (*Store, error) {
 	}
 
 	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("set WAL: %w", err)
 	}
 
 	if _, err := db.Exec("PRAGMA busy_timeout=5000"); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("set busy_timeout: %w", err)
 	}
 
@@ -140,7 +140,7 @@ func Open(dbPath string) (*Store, error) {
 
 	s := &Store{db: &dialectDB{raw: db, dialect: DialectSQLite}}
 	if err := s.migrate(); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
 	return s, nil
@@ -159,13 +159,13 @@ func OpenPostgres(dsn string) (*Store, error) {
 	db.SetConnMaxLifetime(5 * time.Minute)
 
 	if err := db.Ping(); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("ping postgres: %w", err)
 	}
 
 	s := &Store{db: &dialectDB{raw: db, dialect: DialectPostgres}}
 	if err := s.migrate(); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
 	return s, nil
@@ -249,55 +249,44 @@ func (s *Store) migrate() error {
 	if _, err := s.db.ExecDDL(schema); err != nil {
 		return err
 	}
-	if err := s.migrateVectors(); err != nil {
-		return err
+
+	// Migrations run in declaration order and each one is idempotent, so a
+	// re-open replays the whole list harmlessly.
+	//
+	// This is a table rather than a chain of `if err := s.migrateX(); err != nil`
+	// blocks on purpose: as a chain it was the single most complex function in
+	// the package, and it was what pushed the sentrux structural gate from 6 to
+	// 7 complex functions in b53f47d (2026-07-17). Adding a migration here now
+	// costs one line and no branches. Every step is named, so a failure says
+	// which migration broke instead of returning a bare error.
+	steps := []struct {
+		name string
+		fn   func() error
+	}{
+		{"vectors", s.migrateVectors},
+		{"agents", s.migrateAgents},
+		{"claiming", s.migrateClaiming},
+		{"dag", s.migrateDAG},
+		{"extensions", s.migrateExtensions},
+		{"multi-tenancy", s.migrateMultiTenancy},
+		{"comments", s.migrateComments},
+		{"templates", s.migrateTemplates},
+		{"v2-hierarchy", s.migrateV2Hierarchy},
+		{"session-handoffs", s.migrateSessionHandoffs},
+		{"session-handoff-archive", s.migrateSessionHandoffArchive},
+		{"v17600-goals-items", s.migrateV17600GoalsItems},
+		{"provenance", s.migrateProvenance},
+		{"fleet-report-snapshots", s.migrateFleetReportSnapshots},
+		{"terminal-session-events", s.migrateTerminalSessionEvents},
+		{"eval-run-snapshots", s.migrateEvalRunSnapshots},
+		{"fleet-pr-outcomes", s.migrateFleetPROutcomes},
 	}
-	if err := s.migrateAgents(); err != nil {
-		return err
+	for _, step := range steps {
+		if err := step.fn(); err != nil {
+			return fmt.Errorf("migrate %s: %w", step.name, err)
+		}
 	}
-	if err := s.migrateClaiming(); err != nil {
-		return err
-	}
-	if err := s.migrateDAG(); err != nil {
-		return err
-	}
-	if err := s.migrateExtensions(); err != nil {
-		return fmt.Errorf("migrate extensions: %w", err)
-	}
-	if err := s.migrateMultiTenancy(); err != nil {
-		return fmt.Errorf("migrate multi-tenancy: %w", err)
-	}
-	if err := s.migrateComments(); err != nil {
-		return err
-	}
-	if err := s.migrateTemplates(); err != nil {
-		return err
-	}
-	if err := s.migrateV2Hierarchy(); err != nil {
-		return err
-	}
-	if err := s.migrateSessionHandoffs(); err != nil {
-		return err
-	}
-	if err := s.migrateSessionHandoffArchive(); err != nil {
-		return err
-	}
-	if err := s.migrateV17600GoalsItems(); err != nil {
-		return err
-	}
-	if err := s.migrateProvenance(); err != nil {
-		return err
-	}
-	if err := s.migrateFleetReportSnapshots(); err != nil {
-		return err
-	}
-	if err := s.migrateTerminalSessionEvents(); err != nil {
-		return err
-	}
-	if err := s.migrateEvalRunSnapshots(); err != nil {
-		return err
-	}
-	return s.migrateFleetPROutcomes()
+	return nil
 }
 
 // migrateExtensions adds v7800-B3 mini-jira fields (due_date, labels JSON,
@@ -737,8 +726,16 @@ func (s *Store) UpdateSprint(id string, status SprintStatus) error {
 }
 
 func (s *Store) DeleteSprint(id string) error {
+	// The count MUST be checked. Discarding this error left ticketCount at 0
+	// on any query failure, which skipped the guard below and deleted the
+	// sprint anyway -- orphaning every ticket that pointed at it. A failed
+	// count is not an empty sprint.
 	var ticketCount int
-	s.db.QueryRow(`SELECT COUNT(*) FROM tickets WHERE sprint_id = ?`, id).Scan(&ticketCount)
+	if err := s.db.QueryRow(
+		`SELECT COUNT(*) FROM tickets WHERE sprint_id = ?`, id,
+	).Scan(&ticketCount); err != nil {
+		return fmt.Errorf("count tickets for sprint %q: %w", id, err)
+	}
 	if ticketCount > 0 {
 		return fmt.Errorf("sprint %q has %d tickets; remove them first", id, ticketCount)
 	}
@@ -763,8 +760,15 @@ func (s *Store) DeleteTicket(id string) error {
 	if n == 0 {
 		return fmt.Errorf("ticket %q not found", id)
 	}
-	s.db.Exec(`DELETE FROM ticket_transitions WHERE ticket_id = ?`, id)
-	s.db.Exec(`DELETE FROM handoffs WHERE ticket_id = ?`, id)
+	// Cascade rows. A silent failure here leaves transitions and handoffs
+	// referencing a ticket that no longer exists, which later reads surface as
+	// phantom history rather than as an error.
+	if _, err := s.db.Exec(`DELETE FROM ticket_transitions WHERE ticket_id = ?`, id); err != nil {
+		return fmt.Errorf("delete transitions for ticket %q: %w", id, err)
+	}
+	if _, err := s.db.Exec(`DELETE FROM handoffs WHERE ticket_id = ?`, id); err != nil {
+		return fmt.Errorf("delete handoffs for ticket %q: %w", id, err)
+	}
 	return nil
 }
 

@@ -18,7 +18,7 @@ func TestRecordEnabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 
 	r.Record("sprint_create", "cursor-parent", 42*time.Millisecond, false, "")
 	r.Record("ticket_update", "codex", 150*time.Millisecond, true, "not found")
@@ -34,7 +34,7 @@ func TestRecordEnabled(t *testing.T) {
 	}
 
 	var event1 ToolEvent
-	json.Unmarshal([]byte(lines[0]), &event1)
+	_ = json.Unmarshal([]byte(lines[0]), &event1)
 	if event1.Tool != "sprint_create" {
 		t.Errorf("expected sprint_create, got %q", event1.Tool)
 	}
@@ -49,7 +49,7 @@ func TestRecordEnabled(t *testing.T) {
 	}
 
 	var event2 ToolEvent
-	json.Unmarshal([]byte(lines[1]), &event2)
+	_ = json.Unmarshal([]byte(lines[1]), &event2)
 	if event2.Success {
 		t.Error("expected success=false")
 	}
@@ -66,7 +66,7 @@ func TestRecordDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 
 	r.Record("sprint_create", "agent", 10*time.Millisecond, false, "")
 
@@ -84,7 +84,7 @@ func TestConcurrentWrites(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 
 	var wg sync.WaitGroup
 	for i := 0; i < 100; i++ {
@@ -124,7 +124,7 @@ func TestEventSchema(t *testing.T) {
 
 	data, _ := os.ReadFile(logPath)
 	var event map[string]interface{}
-	json.Unmarshal(data, &event)
+	_ = json.Unmarshal(data, &event)
 
 	requiredFields := []string{"ts", "tool", "agent_id", "duration_ms", "success"}
 	for _, field := range requiredFields {
@@ -153,13 +153,13 @@ func TestDefaultConfig(t *testing.T) {
 
 func TestEnabledMethod(t *testing.T) {
 	r1, _ := New(Config{Enabled: true, LogPath: filepath.Join(t.TempDir(), "x.ndjson")})
-	defer r1.Close()
+	defer func() { _ = r1.Close() }()
 	if !r1.Enabled() {
 		t.Error("should report enabled")
 	}
 
 	r2, _ := New(Config{Enabled: false})
-	defer r2.Close()
+	defer func() { _ = r2.Close() }()
 	if r2.Enabled() {
 		t.Error("should report disabled")
 	}
@@ -182,7 +182,7 @@ func TestEnvBool(t *testing.T) {
 		t.Setenv("TEST_BOOL", tc.val)
 		got := envBool("TEST_BOOL", true)
 		if tc.val == "" {
-			os.Unsetenv("TEST_BOOL")
+			_ = os.Unsetenv("TEST_BOOL")
 			got = envBool("TEST_BOOL", true)
 		}
 		if got != tc.want {

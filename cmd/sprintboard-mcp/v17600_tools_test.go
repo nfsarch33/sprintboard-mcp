@@ -37,11 +37,11 @@ func TestSprintGoalCreateTool_MissingSprint(t *testing.T) {
 func TestSprintGoalListTool(t *testing.T) {
 	srv := newTestServer(t)
 
-	srv.store.CreateSprint(sprintboard.Sprint{ID: "tool-list-goal", Name: "List Goal Sprint"})
-	srv.store.CreateSprintGoal(sprintboard.SprintGoal{
+	_ = srv.store.CreateSprint(sprintboard.Sprint{ID: "tool-list-goal", Name: "List Goal Sprint"})
+	_, _ = srv.store.CreateSprintGoal(sprintboard.SprintGoal{
 		SprintID: "tool-list-goal", GoalText: "Goal Alpha", Priority: 2,
 	})
-	srv.store.CreateSprintGoal(sprintboard.SprintGoal{
+	_, _ = srv.store.CreateSprintGoal(sprintboard.SprintGoal{
 		SprintID: "tool-list-goal", GoalText: "Goal Beta", Priority: 1,
 	})
 
@@ -57,7 +57,7 @@ func TestSprintGoalListTool(t *testing.T) {
 func TestRoadmapItemCreateTool(t *testing.T) {
 	srv := newTestServer(t)
 
-	srv.store.CreateRoadmap(sprintboard.Roadmap{ID: "tool-rm", Name: "Tool Roadmap"})
+	_ = srv.store.CreateRoadmap(sprintboard.Roadmap{ID: "tool-rm", Name: "Tool Roadmap"})
 
 	result, isErr := srv.roadmapItemCreate(json.RawMessage(`{
 		"roadmap_id": "tool-rm",
@@ -75,7 +75,7 @@ func TestRoadmapItemCreateTool(t *testing.T) {
 
 func TestRoadmapItemCreateTool_MissingTitle(t *testing.T) {
 	srv := newTestServer(t)
-	srv.store.CreateRoadmap(sprintboard.Roadmap{ID: "tool-rm2", Name: "RM2"})
+	_ = srv.store.CreateRoadmap(sprintboard.Roadmap{ID: "tool-rm2", Name: "RM2"})
 
 	_, isErr := srv.roadmapItemCreate(json.RawMessage(`{"roadmap_id": "tool-rm2"}`))
 	if !isErr {
@@ -86,8 +86,8 @@ func TestRoadmapItemCreateTool_MissingTitle(t *testing.T) {
 func TestRoadmapItemListTool(t *testing.T) {
 	srv := newTestServer(t)
 
-	srv.store.CreateRoadmap(sprintboard.Roadmap{ID: "tool-rm-list", Name: "List RM"})
-	srv.store.CreateRoadmapItem(sprintboard.RoadmapItem{
+	_ = srv.store.CreateRoadmap(sprintboard.Roadmap{ID: "tool-rm-list", Name: "List RM"})
+	_, _ = srv.store.CreateRoadmapItem(sprintboard.RoadmapItem{
 		RoadmapID: "tool-rm-list", Title: "Item One", Priority: 3,
 	})
 
@@ -104,11 +104,11 @@ func TestTicketTreeByEpicTool(t *testing.T) {
 	srv := newTestServer(t)
 
 	srv.store.CreateRoadmap(sprintboard.Roadmap{ID: "rm-ttbe", Name: "TTBE RM"})
-	srv.store.CreateProgramme(sprintboard.Programme{ID: "prog-ttbe", RoadmapID: "rm-ttbe", Name: "TTBE Prog"})
-	srv.store.CreateEpic(sprintboard.Epic{ID: "epic-ttbe", ProgrammeID: "prog-ttbe", Name: "TTBE Epic"})
-	srv.store.CreateSprint(sprintboard.Sprint{ID: "sp-ttbe", Name: "TTBE Sprint"})
-	srv.store.CreateTicket(sprintboard.Ticket{ID: "t-ttbe", SprintID: "sp-ttbe", Title: "TTBE Ticket"})
-	srv.store.RawDB().Exec(`UPDATE tickets SET epic_id = 'epic-ttbe' WHERE id = 't-ttbe'`)
+	_ = srv.store.CreateProgramme(sprintboard.Programme{ID: "prog-ttbe", RoadmapID: "rm-ttbe", Name: "TTBE Prog"})
+	_ = srv.store.CreateEpic(sprintboard.Epic{ID: "epic-ttbe", ProgrammeID: "prog-ttbe", Name: "TTBE Epic"})
+	_ = srv.store.CreateSprint(sprintboard.Sprint{ID: "sp-ttbe", Name: "TTBE Sprint"})
+	_ = srv.store.CreateTicket(sprintboard.Ticket{ID: "t-ttbe", SprintID: "sp-ttbe", Title: "TTBE Ticket"})
+	_, _ = srv.store.RawDB().Exec(`UPDATE tickets SET epic_id = 'epic-ttbe' WHERE id = 't-ttbe'`)
 
 	result, isErr := srv.ticketTreeByEpic(json.RawMessage(`{"epic_id": "epic-ttbe"}`))
 	if isErr {
@@ -122,7 +122,7 @@ func TestTicketTreeByEpicTool(t *testing.T) {
 func TestSessionHandoffFTSTool(t *testing.T) {
 	srv := newTestServer(t)
 
-	srv.store.StoreSessionHandoff(sprintboard.SessionHandoff{
+	_ = srv.store.StoreSessionHandoff(sprintboard.SessionHandoff{
 		ID: "fts-tool-1", SessionID: "s1", AgentID: "cursor-parent",
 		Summary: "Completed the PostgreSQL migration",
 	})

@@ -208,7 +208,7 @@ func (s *Server) programmeList(args json.RawMessage) (string, bool) {
 		RoadmapID string `json:"roadmap_id"`
 	}
 	if len(args) > 0 {
-		json.Unmarshal(args, &p)
+		_ = json.Unmarshal(args, &p) // optional args; zero value is the documented fallback
 	}
 	programmes, err := s.store.ListProgrammes(p.RoadmapID)
 	if err != nil {
@@ -266,7 +266,7 @@ func (s *Server) epicList(args json.RawMessage) (string, bool) {
 		ProgrammeID string `json:"programme_id"`
 	}
 	if len(args) > 0 {
-		json.Unmarshal(args, &p)
+		_ = json.Unmarshal(args, &p) // optional args; zero value is the documented fallback
 	}
 	epics, err := s.store.ListEpics(p.ProgrammeID)
 	if err != nil {

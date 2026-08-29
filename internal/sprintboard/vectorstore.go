@@ -114,10 +114,15 @@ func (s *Store) EmbeddingCount() (int, error) {
 
 func (s *Store) HasEmbedding(sourceType, sourceID string) bool {
 	var count int
-	s.db.QueryRow(
+	// A query failure is reported as "no embedding" on purpose -- the caller
+	// then re-embeds, which is safe -- but the discard is made explicit so it
+	// reads as a decision rather than an oversight.
+	if err := s.db.QueryRow(
 		`SELECT COUNT(*) FROM embeddings WHERE source_type = ? AND source_id = ?`,
 		sourceType, sourceID,
-	).Scan(&count)
+	).Scan(&count); err != nil {
+		return false
+	}
 	return count > 0
 }
 

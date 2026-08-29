@@ -93,6 +93,10 @@ func bridgeToMem0(h CoordinationHandoff) error {
 	}
 
 	body, _ := json.Marshal(payload)
+	// #nosec G704 -- the target is read from process configuration, never
+	// from request data, and this function returns early when it is unset.
+	// NOTE: this Mem0 bridge is slated for removal in favour of Engram; it is
+	// annotated rather than hardened because the code should not survive.
 	req, _ := http.NewRequest("POST", mem0URL+"/memories", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	if mem0Key != "" {
@@ -100,6 +104,8 @@ func bridgeToMem0(h CoordinationHandoff) error {
 	}
 
 	client := &http.Client{Timeout: mem0BridgeTimeout()}
+	// #nosec G704 -- same provenance as the request construction above: the
+	// destination is operator configuration, not attacker-controlled input.
 	resp, err := client.Do(req)
 	if err != nil {
 		return err

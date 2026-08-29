@@ -144,7 +144,7 @@ func TestDispatch_MiniJiraFlow(t *testing.T) {
 	out, isErr = s.dispatch("sprint_topo_sort", mustArgs(t, map[string]string{"sprint_id": "v9000"}))
 	mustOK(t, out, isErr, "sprint_topo_sort")
 	posA, posB, posC := strings.Index(out, "T-A"), strings.Index(out, "T-B"), strings.Index(out, "T-C")
-	if posA == -1 || posB == -1 || posC == -1 || !(posA < posB && posB < posC) {
+	if posA == -1 || posB == -1 || posC == -1 || posA >= posB || posB >= posC {
 		t.Fatalf("topo_sort wrong order: %q (positions A=%d B=%d C=%d)", out, posA, posB, posC)
 	}
 

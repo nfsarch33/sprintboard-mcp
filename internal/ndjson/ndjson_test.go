@@ -25,7 +25,7 @@ func TestOpen_AppendRoundTrip(t *testing.T) {
 	if err := w.Append(map[string]any{"ev": "ok"}); err != nil {
 		t.Fatalf("Append: %v", err)
 	}
-	w.Close()
+	_ = w.Close()
 	body, _ := os.ReadFile(path)
 	if !strings.Contains(string(body), `"ev":"ok"`) {
 		t.Fatalf("missing event: %q", string(body))

@@ -97,8 +97,10 @@ func (e *Embedder) embedTFIDF(text string) []float32 {
 		return vec
 	}
 
+	// int(hashWord(...)) is lossless (uint32 -> int) and avoids the
+	// int -> uint32 narrowing that overflows for a large Dimension.
 	for _, word := range words {
-		idx := hashWord(word) % uint32(e.config.Dimension)
+		idx := int(hashWord(word)) % e.config.Dimension
 		vec[idx] += 1.0
 	}
 

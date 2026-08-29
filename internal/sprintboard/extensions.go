@@ -92,10 +92,10 @@ func (s *Store) SprintSLAs(sprintID string) ([]SLA, error) {
 	var out []SLA
 	for rows.Next() {
 		var (
-			id                                  string
-			claimedBy, createdAt                sql.NullString
-			claimedAtStr, completedAtStr        sql.NullString
-			timeToClaimMS, timeToCompleteMS     sql.NullInt64
+			id                              string
+			claimedBy, createdAt            sql.NullString
+			claimedAtStr, completedAtStr    sql.NullString
+			timeToClaimMS, timeToCompleteMS sql.NullInt64
 		)
 		if err := rows.Scan(
 			&id, &claimedBy, &createdAt, &claimedAtStr, &completedAtStr,

@@ -6,17 +6,17 @@ import (
 )
 
 type CapabilityMatch struct {
-	AgentID      string   `json:"agent_id"`
-	MatchCount   int      `json:"match_count"`
-	TotalRequired int     `json:"total_required"`
-	MatchScore   float64  `json:"match_score"`
-	MissingCaps  []string `json:"missing_caps,omitempty"`
+	AgentID       string   `json:"agent_id"`
+	MatchCount    int      `json:"match_count"`
+	TotalRequired int      `json:"total_required"`
+	MatchScore    float64  `json:"match_score"`
+	MissingCaps   []string `json:"missing_caps,omitempty"`
 }
 
 type GapReport struct {
-	TicketID     string   `json:"ticket_id"`
-	Required     []string `json:"required"`
-	MissingCaps  []string `json:"missing_caps"`
+	TicketID    string   `json:"ticket_id"`
+	Required    []string `json:"required"`
+	MissingCaps []string `json:"missing_caps"`
 }
 
 func parseCaps(raw string) []string {
