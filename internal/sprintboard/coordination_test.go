@@ -1,9 +1,9 @@
 package sprintboard
 
 import (
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -104,51 +104,58 @@ func TestSubscribeHandoffs_FiltersBySince(t *testing.T) {
 	}
 }
 
-func TestBridgeToMem0UsesMemoriesEndpoint(t *testing.T) {
-	var gotPath string
-	var gotPayload map[string]interface{}
+// TestPublishHandoff_MakesNoOutboundRequest replaces the two tests that used
+// to exercise the removed external-memory bridge. It is the regression guard
+// for that removal: publishing a handoff must touch the database and nothing
+// else. If a bridge is ever reintroduced as a hidden side effect of the
+// insert, this fails.
+func TestPublishHandoff_MakesNoOutboundRequest(t *testing.T) {
+	var called int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotPath = r.URL.Path
-		if r.Method != http.MethodPost {
-			t.Errorf("method = %s, want POST", r.Method)
-		}
-		if err := json.NewDecoder(r.Body).Decode(&gotPayload); err != nil {
-			t.Fatalf("decode payload: %v", err)
-		}
-		if r.URL.Path != "/memories" {
-			http.NotFound(w, r)
-			return
-		}
+		atomic.AddInt32(&called, 1)
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()
 
+	// Set every variable the removed bridge used to read. A reintroduced
+	// bridge configured the old way would fire at this server.
 	t.Setenv("MEM0_BASE_URL", server.URL)
-	t.Setenv("MEM0_API_KEY", "")
+	t.Setenv("MEM0_API_KEY", "not-a-real-key")
+	t.Setenv("MEM0_TIMEOUT", "90s")
+	t.Setenv("ENGRAM_BASE_URL", server.URL)
 
-	err := bridgeToMem0(CoordinationHandoff{
+	s := testStore(t)
+	if err := s.CreateSprint(Sprint{ID: "S1", Name: "test"}); err != nil {
+		t.Fatalf("CreateSprint: %v", err)
+	}
+	if err := s.CreateTicket(Ticket{ID: "T1", SprintID: "S1", Title: "task"}); err != nil {
+		t.Fatalf("CreateTicket: %v", err)
+	}
+
+	id, err := s.PublishHandoff(CoordinationHandoff{
 		TicketID:  "T1",
-		FromAgent: "codex",
-		ToAgent:   "cursor-parent",
-		Summary:   "foundation smoke",
+		FromAgent: "agent-a",
+		ToAgent:   "agent-b",
+		Summary:   "handoff summary",
 	})
 	if err != nil {
-		t.Fatalf("bridgeToMem0: %v (path %q)", err, gotPath)
+		t.Fatalf("PublishHandoff: %v", err)
 	}
-	if gotPath != "/memories" {
-		t.Fatalf("path = %q, want /memories", gotPath)
+	if id == 0 {
+		t.Error("PublishHandoff returned id 0")
 	}
-	if _, ok := gotPayload["metadata"]; ok {
-		t.Fatalf("metadata must be omitted on current Mem0 OSS write path: %+v", gotPayload)
-	}
-	if gotPayload["infer"] != false {
-		t.Fatalf("infer = %v, want false", gotPayload["infer"])
-	}
-}
 
-func TestMem0BridgeTimeoutUsesEnv(t *testing.T) {
-	t.Setenv("MEM0_TIMEOUT", "90s")
-	if got := mem0BridgeTimeout(); got != 90*time.Second {
-		t.Fatalf("timeout = %s, want 90s", got)
+	if n := atomic.LoadInt32(&called); n != 0 {
+		t.Errorf("PublishHandoff made %d outbound HTTP request(s); it must only write to the store", n)
+	}
+
+	// Positive control: the durable write still happened. Without this, the
+	// assertion above would also pass if PublishHandoff did nothing at all.
+	got, err := s.SubscribeHandoffs("agent-b", time.Now().Add(-time.Hour))
+	if err != nil {
+		t.Fatalf("SubscribeHandoffs: %v", err)
+	}
+	if len(got) != 1 || got[0].Summary != "handoff summary" {
+		t.Fatalf("handoff not persisted: %+v", got)
 	}
 }

@@ -138,17 +138,37 @@ func TestNotifier_TicketClaimAndComplete(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("expected 2 events, got %d: %+v", len(got), got)
 	}
-	if got[0].Event != "ticket_claimed" {
-		t.Errorf("event[0] = %q, want ticket_claimed", got[0].Event)
+
+	// Index by event name rather than arrival position. Notify dispatches on a
+	// detached goroutine ("must never block the dispatch path", notifier.go),
+	// so the sink's arrival ORDER is not part of the contract -- under load the
+	// completion webhook can overtake the claim webhook. Asserting got[0]/got[1]
+	// positionally made this test fail ~2 runs in 10 on a loaded host, on this
+	// branch and on origin/main equally.
+	//
+	// Every original assertion is preserved: both events must arrive, and the
+	// completion event must carry the right ticket and evidence. Only the
+	// ordering claim -- which the implementation never made -- is dropped.
+	byEvent := make(map[string]recordedEvent, len(got))
+	for _, e := range got {
+		if _, dup := byEvent[e.Event]; dup {
+			t.Fatalf("event %q delivered twice: %+v", e.Event, got)
+		}
+		byEvent[e.Event] = e
 	}
-	if got[1].Event != "ticket_completed" {
-		t.Errorf("event[1] = %q, want ticket_completed", got[1].Event)
+
+	if _, ok := byEvent["ticket_claimed"]; !ok {
+		t.Errorf("no ticket_claimed event; got %+v", got)
 	}
-	if got[1].Payload["ticket_id"] != "T-WH-1" {
-		t.Errorf("event[1].payload.ticket_id = %v, want T-WH-1", got[1].Payload["ticket_id"])
+	completed, ok := byEvent["ticket_completed"]
+	if !ok {
+		t.Fatalf("no ticket_completed event; got %+v", got)
 	}
-	if got[1].Payload["evidence"] != "tests green" {
-		t.Errorf("event[1].payload.evidence = %v, want tests green", got[1].Payload["evidence"])
+	if completed.Payload["ticket_id"] != "T-WH-1" {
+		t.Errorf("ticket_completed.payload.ticket_id = %v, want T-WH-1", completed.Payload["ticket_id"])
+	}
+	if completed.Payload["evidence"] != "tests green" {
+		t.Errorf("ticket_completed.payload.evidence = %v, want tests green", completed.Payload["evidence"])
 	}
 }
 

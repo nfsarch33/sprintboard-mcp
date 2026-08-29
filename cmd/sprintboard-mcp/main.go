@@ -214,7 +214,7 @@ func (s *Server) handleToolsList(req JSONRPCRequest) JSONRPCResponse {
 		{Name: "agent_heartbeat", Description: "Send heartbeat to keep agent registration active", InputSchema: agentHeartbeatSchema()},
 		{Name: "task_claim", Description: "Atomically claim a ticket (prevents double-assignment)", InputSchema: taskClaimSchema()},
 		{Name: "task_complete", Description: "Mark a claimed ticket as done with evidence", InputSchema: taskCompleteSchema()},
-		{Name: "handoff_publish", Description: "Publish cross-agent handoff (also bridges to Mem0 cursor-coordination)", InputSchema: handoffPublishSchema()},
+		{Name: "handoff_publish", Description: "Publish a cross-agent handoff to the board's durable handoff log", InputSchema: handoffPublishSchema()},
 		{Name: "handoff_subscribe", Description: "Check for handoffs addressed to this agent", InputSchema: handoffSubscribeSchema()},
 		{Name: "task_recommend", Description: "Recommend next tasks for an agent based on capabilities and sprint backlog", InputSchema: taskRecommendSchema()},
 		{Name: "sprint_distribute", Description: "Auto-assign all sprint tickets to agents based on capabilities and load", InputSchema: sprintDistributeSchema()},

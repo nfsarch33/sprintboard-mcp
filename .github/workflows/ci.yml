@@ -47,12 +47,15 @@ jobs:
             apk add --no-cache gcc musl-dev
           fi
       - run: CGO_ENABLED=1 go test -race -coverprofile=coverage.out -covermode=atomic ./...
+      # 75% is the operator standard ("75%+ overall coverage, no exceptions").
+      # Raised from 70% in v18789 once the repo actually cleared it -- the
+      # threshold follows the code, never the other way round.
       - name: Check coverage
         run: |
           total=$(go tool cover -func=coverage.out | tail -1 | awk '{print $3}' | tr -d '%')
           echo "Total coverage: ${total}%"
-          if [ "$(echo "$total < 70" | bc)" -eq 1 ]; then
-            echo "::error::Coverage ${total}% is below the 70% threshold"
+          if [ "$(echo "$total < 75" | bc)" -eq 1 ]; then
+            echo "::error::Coverage ${total}% is below the 75% threshold"
             exit 1
           fi
 
