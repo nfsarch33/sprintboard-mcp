@@ -1,6 +1,6 @@
 module github.com/nfsarch33/sprintboard-mcp
 
-go 1.25.13
+go 1.27.0
 
 require (
 	github.com/jackc/pgx/v5 v5.9.2
