@@ -1,5 +1,5 @@
 variables:
-  GO_VERSION: "1.25"
+  GO_VERSION: "1.27"
   COVERAGE_THRESHOLD: "70"
 
 stages:
