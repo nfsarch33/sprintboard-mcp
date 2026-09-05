@@ -1,6 +1,6 @@
 # SprintBoard MCP -- Agent Guidelines
 
-- Repo: `https://github.com/nfsarch33/sprintboard-mcp`
+- Repo: `https://github.com/<redacted>/sprintboard-mcp`
 - **Purpose**: SQLite-backed multi-agent sprint board with MCP + REST interfaces.
   Atomic ticket claiming, DAG dependencies, semantic search, burndown metrics.
 - **Binary**: `~/runs/sprintboard-mcp` (MCP stdio), `sprintboard-api` (REST :9400)
@@ -50,4 +50,4 @@ Comments: `ticket_comment_add`, `ticket_comment_list`
 
 ## Identity
 
-- Personal repos: `nfsarch33` / SSH `~/.ssh/agtc`
+- Personal repos: `<redacted>` / SSH `~/.ssh/agtc`
