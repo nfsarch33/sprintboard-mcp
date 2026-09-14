@@ -51,3 +51,9 @@ Comments: `ticket_comment_add`, `ticket_comment_list`
 ## Identity
 
 - Personal repos: `<redacted>` / SSH `~/.ssh/agtc`
+
+## Authentication (v18836)
+
+The API enforces a shared bearer when `SPRINTBOARD_AUTH_MODE=required`;
+`bootstrap` accepts the token and logs every anonymous caller; `off` (or an
+unset token) leaves it open and warns at start-up. See README "Authentication".

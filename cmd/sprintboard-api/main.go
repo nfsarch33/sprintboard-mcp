@@ -36,6 +36,17 @@ func main() {
 	logger.Info("database opened", "dialect", store.Dialect())
 
 	srv := api.NewServer(store, logger)
+	auth, mode, err := api.AuthFromEnv(os.Getenv, logger)
+	if err != nil {
+		logger.Error("auth configuration", "error", err)
+		os.Exit(1)
+	}
+	if auth == nil {
+		logger.Warn("API is UNAUTHENTICATED: set "+api.EnvAPIToken+" (and "+api.EnvAuthMode+"=required) to enforce the shared bearer", "auth_mode", mode)
+	} else {
+		srv.SetJWTAuth(auth)
+		logger.Info("auth configured", "auth_mode", mode)
+	}
 	httpSrv := &http.Server{
 		Addr:         *addr,
 		Handler:      srv.Handler(),
