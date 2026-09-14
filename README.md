@@ -108,3 +108,20 @@ Add to `~/.cursor/mcp.json`:
 ## License
 
 MIT
+
+## Authentication
+
+`sprintboard-api` reads two environment variables at start-up:
+
+| Variable | Meaning |
+|---|---|
+| `SPRINTBOARD_API_TOKEN` | the shared bearer every writer presents (at least 32 bytes) |
+| `SPRINTBOARD_AUTH_MODE` | `off` \| `bootstrap` \| `required` |
+
+`off` (the default when no token is set) leaves the API unauthenticated and
+says so in the log. `bootstrap` (the default when a token is set) accepts the
+shared token and still lets anonymous requests through, logging each with its
+remote address and user agent — the census that precedes the flip. `required`
+answers 401 to any non-health route without the token. `/healthz`, `/readyz`
+and `/metrics` never require a token. Signed JWTs remain supported alongside
+the shared token (`internal/api/jwt_middleware.go`).

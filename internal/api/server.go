@@ -58,14 +58,16 @@ func (s *Server) SetJWTAuth(auth *JWTAuthenticator) { s.jwt = auth }
 // timeouts is solved by drainAndClose on every body-decoding handler, which
 // allows net/http to recycle the keep-alive connection cleanly.
 func (s *Server) Handler() http.Handler {
-	h := s.withMiddleware(s.mux)
+	var h http.Handler = s.mux
 	if s.jwt != nil {
-		// JWT middleware runs INSIDE the access logger so failed auth
-		// still gets logged with method+path+duration. /healthz etc.
-		// bypass JWT (JWTAuthenticator.isBypassedPath).
+		// JWT middleware runs INSIDE the access logger so a rejected request
+		// is logged with method+path+duration like any other answer. It used
+		// to be wrapped outside, which silently exempted every 401 from the
+		// log and made a caller census impossible from logs alone.
+		// /healthz etc. bypass JWT (JWTAuthenticator.isBypassedPath).
 		h = s.jwt.Middleware(h)
 	}
-	return h
+	return s.withMiddleware(h)
 }
 
 // SetShuttingDown marks the server as shutting down; /readyz returns 503.
