@@ -1,0 +1,70 @@
+# Layered Gitleaks (fast regex) + TruffleHog (live verification) pre-push hook.
+# Source of truth: the estate's templates/.pre-commit-config.yaml.
+#
+# Why this file exists at all. The shared pre-push hook shim guards its work on
+# `[ -f "$repo_root/.pre-commit-config.yaml" ]`. Without this file the guard is
+# false and the shim exits having scanned nothing -- it FAILS OPEN and silently.
+# A repository in that state looks protected (the shim is installed and runs)
+# while receiving no secret scan whatsoever.
+#
+# Install: pre-commit is invoked by the shared shim; no per-repo install step.
+# Smoke:   commit a line shaped like a real credential and push -- the push MUST
+#          be blocked. Do not smoke-test with a vendor's published EXAMPLE key:
+#          those are allowlisted by gitleaks under both custom and default
+#          rulesets, so they pass while proving nothing.
+
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      # The upstream `id: gitleaks` hook runs `gitleaks protect --staged`, which
+      # only sees staged-but-uncommitted changes. At pre-push we want committed
+      # history scanned too, so the entry is overridden.
+      #
+      # --log-opts=HEAD scopes the walk to the history reachable from HEAD.
+      # Without it gitleaks runs `git log -p -U0 --full-history --all`, i.e.
+      # every ref the local clone happens to hold -- so a finding on an
+      # unrelated local branch blocks a push that does not contain it, and the
+      # verdict varies with whatever branches a developer has lying around.
+      # Scoping to HEAD narrows WHAT IS SCANNED to the history being published;
+      # it does not reduce coverage of that history.
+      #
+      # Deliberately NO --config: this repository carries no .gitleaks.toml, and
+      # a --config flag pointing at a missing file is FATAL, not a fallback --
+      # measured: "unable to load gitleaks config", non-zero exit, nothing
+      # scanned. That would block every push on a configuration error rather
+      # than on a finding. The stock ruleset is used instead, and it detects
+      # credential-shaped values correctly. Adding a custom ruleset is a
+      # separate change.
+      #
+      # Deliberately NO --baseline-path: there is no baseline file here. That
+      # flag against a missing file is non-fatal but logs an error on every
+      # push, which trains people to ignore scanner output.
+      - id: gitleaks
+        name: Gitleaks (history scan, scoped to HEAD)
+        stages: [pre-push]
+        entry: gitleaks detect --no-banner --redact --source . --log-opts=HEAD
+        language: golang
+        # pre-push scans the repository, not a file list.
+        pass_filenames: false
+
+  - repo: https://github.com/trufflesecurity/trufflehog
+    rev: v3.95.9
+    hooks:
+      - id: trufflehog
+        name: TruffleHog (live verification)
+        # --only-verified cuts noise from test fixtures and synthetic keys, so
+        # this layer fires only when a credential still works upstream. --fail
+        # exits non-zero on a verified live secret. --no-update stops the hook
+        # reaching out to upgrade itself mid-push.
+        #
+        # NEVER add --since-commit HEAD. TruffleHog's range is since..tip,
+        # EXCLUSIVE of since, so since=HEAD is the EMPTY range: measured
+        # elsewhere in this estate at 0 chunks / 0 bytes scanned while the
+        # history under test held verified live credentials. An entry carrying
+        # that flag is green on every push because it never reads a byte, and a
+        # gate that cannot fail is not a gate.
+        entry: trufflehog git file://. --only-verified --fail --no-update
+        language: system
+        stages: [pre-push]
+        pass_filenames: false
