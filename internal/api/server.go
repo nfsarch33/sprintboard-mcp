@@ -90,6 +90,10 @@ func (s *Server) routes() {
 	// Human close path for escalated tickets. Separate from /complete on
 	// purpose -- see handleTicketResolve and sprintboard.ResolveTicket.
 	s.mux.HandleFunc("POST /api/v1/tickets/{id}/resolve", s.handleTicketResolve)
+	// v18850: the way back from a terminal status. Paired with the terminal
+	// guard on /claim -- without it, refusing to re-claim closed tickets
+	// would make a wrongly-closed ticket unfixable. See handleTicketRequeue.
+	s.mux.HandleFunc("POST /api/v1/tickets/{id}/requeue", s.handleTicketRequeue)
 	// Registered before the {id} pattern is irrelevant to ServeMux -- the
 	// literal segment is the more specific pattern and wins regardless, the
 	// same way /api/v1/tickets/search already does.
@@ -398,15 +402,16 @@ func (s *Server) handleSprintClose(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleTicketCreate(w http.ResponseWriter, r *http.Request) {
 	defer drainAndClose(r)
 	var req struct {
-		ID          string   `json:"id"`
-		Title       string   `json:"title"`
-		SprintID    string   `json:"sprint_id"`
-		Description string   `json:"description,omitempty"`
-		Priority    int      `json:"priority,omitempty"`
-		DueDate     string   `json:"due_date,omitempty"`
-		Labels      []string `json:"labels,omitempty"`
-		Status      string   `json:"status,omitempty"`
-		OwnerAgent  string   `json:"owner_agent,omitempty"`
+		ID                 string   `json:"id"`
+		Title              string   `json:"title"`
+		SprintID           string   `json:"sprint_id"`
+		Description        string   `json:"description,omitempty"`
+		Priority           int      `json:"priority,omitempty"`
+		DueDate            string   `json:"due_date,omitempty"`
+		Labels             []string `json:"labels,omitempty"`
+		Status             string   `json:"status,omitempty"`
+		OwnerAgent         string   `json:"owner_agent,omitempty"`
+		AcceptanceCriteria string   `json:"acceptance_criteria,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
@@ -417,13 +422,14 @@ func (s *Server) handleTicketCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	t := sprintboard.Ticket{
-		ID:          req.ID,
-		Title:       req.Title,
-		SprintID:    req.SprintID,
-		Description: req.Description,
-		Priority:    req.Priority,
-		Labels:      req.Labels,
-		OwnerAgent:  req.OwnerAgent,
+		ID:                 req.ID,
+		Title:              req.Title,
+		SprintID:           req.SprintID,
+		Description:        req.Description,
+		Priority:           req.Priority,
+		Labels:             req.Labels,
+		OwnerAgent:         req.OwnerAgent,
+		AcceptanceCriteria: req.AcceptanceCriteria,
 	}
 	if req.Status != "" {
 		t.Status = sprintboard.TicketStatus(req.Status)
@@ -496,6 +502,10 @@ func (s *Server) handleTicketClaim(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := s.store.ClaimTicket(id, agentID)
 	if err != nil {
+		if errors.Is(err, sprintboard.ErrTicketTerminal) {
+			writeErr(w, http.StatusConflict, err)
+			return
+		}
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
@@ -573,6 +583,43 @@ func (s *Server) handleTicketResolve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.metrics.IncTicketsResolved()
+	writeJSON(w, http.StatusOK, ticket)
+}
+
+// handleTicketRequeue reopens a closed ticket: terminal status -> ready, with
+// the actor and reason on the audit trail. It is the paired half of the
+// terminal guard on /claim -- the guard makes finished work unclaimable, this
+// route makes a wrongly-closed ticket fixable. Non-terminal tickets are
+// refused (409): releasing live work is a different verb, not this one.
+func (s *Server) handleTicketRequeue(w http.ResponseWriter, r *http.Request) {
+	defer drainAndClose(r)
+	id := r.PathValue("id")
+	var req struct {
+		Actor  string `json:"actor"`
+		Reason string `json:"reason"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	if req.Actor == "" || req.Reason == "" {
+		writeErr(w, http.StatusBadRequest, fmt.Errorf("actor and reason are required"))
+		return
+	}
+
+	ticket, err := s.store.RequeueTicket(id, req.Actor, req.Reason)
+	if err != nil {
+		switch {
+		case errors.Is(err, sprintboard.ErrTicketNotFound):
+			writeErr(w, http.StatusNotFound, err)
+		case errors.Is(err, sprintboard.ErrTicketNotTerminal):
+			writeErr(w, http.StatusConflict, err)
+		default:
+			writeErr(w, http.StatusInternalServerError, err)
+		}
+		return
+	}
+	s.metrics.IncTicketsRequeued()
 	writeJSON(w, http.StatusOK, ticket)
 }
 

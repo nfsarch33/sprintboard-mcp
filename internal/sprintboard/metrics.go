@@ -21,6 +21,7 @@ type Metrics struct {
 	TicketsClaimed    atomic.Uint64
 	TicketsCompleted  atomic.Uint64
 	TicketsResolved   atomic.Uint64
+	TicketsRequeued   atomic.Uint64
 	AgentsRegistered  atomic.Uint64
 	HandoffsPublished atomic.Uint64
 	CommentsAdded     atomic.Uint64
@@ -34,6 +35,7 @@ func (m *Metrics) IncTicketsCreated()    { m.TicketsCreated.Add(1) }
 func (m *Metrics) IncTicketsClaimed()    { m.TicketsClaimed.Add(1) }
 func (m *Metrics) IncTicketsCompleted()  { m.TicketsCompleted.Add(1) }
 func (m *Metrics) IncTicketsResolved()   { m.TicketsResolved.Add(1) }
+func (m *Metrics) IncTicketsRequeued()   { m.TicketsRequeued.Add(1) }
 func (m *Metrics) IncAgentsRegistered()  { m.AgentsRegistered.Add(1) }
 func (m *Metrics) IncHandoffsPublished() { m.HandoffsPublished.Add(1) }
 func (m *Metrics) IncCommentsAdded()     { m.CommentsAdded.Add(1) }
@@ -52,6 +54,7 @@ func (m *Metrics) WritePrometheus(w io.Writer) error {
 		{"sprintboard_tickets_claimed_total", "Tickets claimed since process start.", m.TicketsClaimed.Load()},
 		{"sprintboard_tickets_completed_total", "Tickets completed since process start.", m.TicketsCompleted.Load()},
 		{"sprintboard_tickets_resolved_total", "Tickets closed by a human via the resolve route since process start.", m.TicketsResolved.Load()},
+		{"sprintboard_tickets_requeued_total", "Tickets reopened from a terminal status via the requeue route since process start.", m.TicketsRequeued.Load()},
 		{"sprintboard_agents_registered_total", "Agents registered since process start.", m.AgentsRegistered.Load()},
 		{"sprintboard_handoffs_published_total", "Handoffs published since process start.", m.HandoffsPublished.Load()},
 		{"sprintboard_comments_added_total", "Ticket comments added since process start.", m.CommentsAdded.Load()},
