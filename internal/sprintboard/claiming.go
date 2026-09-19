@@ -56,12 +56,23 @@ func (s *Store) ClaimTicket(ticketID, agentID string) (ClaimResult, error) {
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	var currentClaim, createdAtRaw sql.NullString
+	var currentClaim, createdAtRaw, currentStatus sql.NullString
 	err = tx.QueryRow(
-		`SELECT claimed_by, created_at FROM tickets WHERE id = ?`, ticketID,
-	).Scan(&currentClaim, &createdAtRaw)
+		`SELECT claimed_by, created_at, status FROM tickets WHERE id = ?`, ticketID,
+	).Scan(&currentClaim, &createdAtRaw, &currentStatus)
 	if err != nil {
 		return ClaimResult{}, fmt.Errorf("ticket %q not found: %w", ticketID, err)
+	}
+
+	// Terminal guard. A done or resolved ticket is closed for good: claiming
+	// it again resurrects finished work, and the previous-status audit row
+	// would record a transition that never happened. This applies to the
+	// agent that closed the ticket too -- the way back to ready is RequeueTicket,
+	// which demands an actor and a reason. See resolution.go for the same
+	// refusal on the human close path.
+	fromStatus := TicketStatus(nullString(currentStatus))
+	if fromStatus.IsTerminal() {
+		return ClaimResult{}, fmt.Errorf("%w: %q is %s", ErrTicketTerminal, ticketID, fromStatus)
 	}
 
 	if currentClaim.Valid && currentClaim.String != "" && currentClaim.String != agentID {
@@ -86,10 +97,13 @@ func (s *Store) ClaimTicket(ticketID, agentID string) (ClaimResult, error) {
 		return ClaimResult{}, err
 	}
 
+	// from_status is the ticket's REAL previous status, read above. The
+	// hardcoded "ready" this replaces wrote a false audit row for every
+	// backlog (or any non-ready) claim.
 	_, err = tx.Exec(
 		`INSERT INTO ticket_transitions (ticket_id, from_status, to_status, agent_id, note, timestamp)
 		 VALUES (?, ?, ?, ?, ?, ?)`,
-		ticketID, StatusReady, StatusInProgress, agentID, "claimed", now,
+		ticketID, fromStatus, StatusInProgress, agentID, "claimed", now,
 	)
 	if err != nil {
 		return ClaimResult{}, err

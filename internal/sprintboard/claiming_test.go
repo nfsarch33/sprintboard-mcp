@@ -1,6 +1,7 @@
 package sprintboard
 
 import (
+	"errors"
 	"testing"
 	"time"
 )
@@ -144,5 +145,84 @@ func TestReleaseNullClaims(t *testing.T) {
 	t2, _ := s.GetTicket("T2")
 	if t2.Status != StatusInProgress {
 		t.Errorf("T2 status = %q, want in_progress (claimed by cursor-parent)", t2.Status)
+	}
+}
+
+// v18850: the claim path must refuse terminal tickets and record the REAL
+// previous status. Before this, a done or resolved ticket whose claimed_by was
+// NULL (or matched the caller) could be claimed again -- resurrecting finished
+// work -- and the audit row said "ready -> in_progress" whatever the truth.
+func TestClaimTicket_TerminalTicketRefused(t *testing.T) {
+	for _, status := range []TicketStatus{StatusDone, StatusResolvedByHuman} {
+		s := testStore(t)
+		s.CreateSprint(Sprint{ID: "S1", Name: "test"})
+		s.CreateTicket(Ticket{ID: "T1", SprintID: "S1", Title: "task", Status: status})
+
+		result, err := s.ClaimTicket("T1", "agent-a")
+		if !errors.Is(err, ErrTicketTerminal) {
+			t.Fatalf("claim of %s ticket: err = %v, want ErrTicketTerminal", status, err)
+		}
+		if result.Success {
+			t.Fatalf("claim of %s ticket reported success", status)
+		}
+
+		got, err := s.GetTicket("T1")
+		if err != nil {
+			t.Fatalf("GetTicket: %v", err)
+		}
+		if got.Status != status {
+			t.Fatalf("ticket status mutated to %q, want unchanged %q", got.Status, status)
+		}
+
+		var n int
+		s.db.QueryRow(`SELECT COUNT(*) FROM ticket_transitions WHERE ticket_id = 'T1'`).Scan(&n)
+		if n != 0 {
+			t.Fatalf("claim of %s ticket wrote %d transition row(s); audit trail must stay empty", status, n)
+		}
+	}
+}
+
+// Even the agent that finished the work cannot re-claim it: done is done, and
+// the way back to ready is the requeue route with an actor and a reason.
+func TestClaimTicket_SameAgentTerminalRefused(t *testing.T) {
+	s := testStore(t)
+	s.CreateSprint(Sprint{ID: "S1", Name: "test"})
+	s.CreateTicket(Ticket{ID: "T1", SprintID: "S1", Title: "task", Status: StatusReady})
+	if _, err := s.ClaimTicket("T1", "agent-a"); err != nil {
+		t.Fatalf("first claim: %v", err)
+	}
+	if err := s.CompleteTicket("T1", "agent-a", "evidence", "", ""); err != nil {
+		t.Fatalf("complete: %v", err)
+	}
+
+	if _, err := s.ClaimTicket("T1", "agent-a"); !errors.Is(err, ErrTicketTerminal) {
+		t.Fatalf("same-agent re-claim of done ticket: err = %v, want ErrTicketTerminal", err)
+	}
+}
+
+// The transition row must carry the ticket's actual previous status, not a
+// hardcoded "ready": the audit trail is the board's history, and a backlog
+// claim recorded as ready→in_progress never happened.
+func TestClaimTicket_HonestPreviousStatus(t *testing.T) {
+	s := testStore(t)
+	s.CreateSprint(Sprint{ID: "S1", Name: "test"})
+	s.CreateTicket(Ticket{ID: "T1", SprintID: "S1", Title: "task", Status: StatusBacklog})
+
+	if _, err := s.ClaimTicket("T1", "agent-a"); err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+
+	var fromStatus, toStatus string
+	err := s.db.QueryRow(
+		`SELECT from_status, to_status FROM ticket_transitions WHERE ticket_id = 'T1'`,
+	).Scan(&fromStatus, &toStatus)
+	if err != nil {
+		t.Fatalf("read transition: %v", err)
+	}
+	if fromStatus != string(StatusBacklog) {
+		t.Fatalf("from_status = %q, want %q (the real previous status)", fromStatus, StatusBacklog)
+	}
+	if toStatus != string(StatusInProgress) {
+		t.Fatalf("to_status = %q, want %q", toStatus, StatusInProgress)
 	}
 }
