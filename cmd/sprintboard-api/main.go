@@ -58,6 +58,16 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	// v18860-1: stale-claim sweeper, DISABLED BY DEFAULT. Arming it is a
+	// per-deployment decision: it must only run once the pollers renew their
+	// claims (helixon-platform RenewClaim), or it will release tickets out
+	// from under legitimately long runs. SPRINTBOARD_STALE_SWEEP_INTERVAL
+	// (e.g. "5m") arms it; SPRINTBOARD_STALE_SWEEP_WINDOW (default 30m,
+	// matching the MCP server's sweep) is the lease age that expires.
+	sweepInterval := parseDurationEnv(os.Getenv("SPRINTBOARD_STALE_SWEEP_INTERVAL"), 0, logger)
+	sweepWindow := parseDurationEnv(os.Getenv("SPRINTBOARD_STALE_SWEEP_WINDOW"), 30*time.Minute, logger)
+	go api.NewStaleSweeper(store, sweepInterval, sweepWindow, logger, srv.Metrics()).Run(ctx)
+
 	go func() {
 		logger.Info("sprintboard-api starting", "addr", *addr, "db", dp)
 		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -77,4 +87,21 @@ func main() {
 		logger.Error("shutdown", "error", err)
 	}
 	fmt.Fprintln(os.Stderr, "sprintboard-api stopped")
+}
+
+// parseDurationEnv parses a Go duration from an env value, returning fallback
+// when unset or unparsable. A bad value must not take the board down, but it
+// must not be silent either — the raw value is logged so a typo'd interval is
+// diagnosable from the journal instead of surfacing as "sweeper disabled?".
+func parseDurationEnv(raw string, fallback time.Duration, logger *slog.Logger) time.Duration {
+	if raw == "" {
+		return fallback
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil || d <= 0 {
+		logger.Warn("invalid duration env value; using fallback",
+			slog.String("value", raw), slog.Duration("fallback", fallback))
+		return fallback
+	}
+	return d
 }
