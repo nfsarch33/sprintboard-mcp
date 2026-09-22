@@ -94,6 +94,9 @@ func (s *Server) routes() {
 	// guard on /claim -- without it, refusing to re-claim closed tickets
 	// would make a wrongly-closed ticket unfixable. See handleTicketRequeue.
 	s.mux.HandleFunc("POST /api/v1/tickets/{id}/requeue", s.handleTicketRequeue)
+	// v18860-1: claim-lease renewal. The paired half of the stale sweeper —
+	// live work renews instead of being released.
+	s.mux.HandleFunc("POST /api/v1/tickets/{id}/renew", s.handleTicketRenew)
 	// Registered before the {id} pattern is irrelevant to ServeMux -- the
 	// literal segment is the more specific pattern and wins regardless, the
 	// same way /api/v1/tickets/search already does.
@@ -621,6 +624,46 @@ func (s *Server) handleTicketRequeue(w http.ResponseWriter, r *http.Request) {
 	}
 	s.metrics.IncTicketsRequeued()
 	writeJSON(w, http.StatusOK, ticket)
+}
+
+// handleTicketRenew extends the claim lease on a live ticket (v18860-1): the
+// named claimant refreshes claimed_at so the stale-claim sweeper does not
+// release a ticket out from under a run that is demonstrably alive (the
+// poller's in-place infra retry can hold a claim for tens of minutes). A
+// renew by anyone other than the holder -- or against a ticket that is not
+// in progress -- is a 409, not an error worth paging anyone about: it is the
+// ordinary outcome of a poller racing its own completion.
+func (s *Server) handleTicketRenew(w http.ResponseWriter, r *http.Request) {
+	defer drainAndClose(r)
+	id := r.PathValue("id")
+	var req struct {
+		AgentID string `json:"agent_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	if req.AgentID == "" {
+		writeErr(w, http.StatusBadRequest, fmt.Errorf("agent_id is required"))
+		return
+	}
+	claimedAt, err := s.store.RenewClaim(id, req.AgentID)
+	if err != nil {
+		switch {
+		case errors.Is(err, sprintboard.ErrTicketNotClaimedBy):
+			writeErr(w, http.StatusConflict, err)
+		default:
+			writeErr(w, http.StatusInternalServerError, err)
+		}
+		return
+	}
+	s.metrics.IncTicketsRenewed()
+	writeJSON(w, http.StatusOK, map[string]any{
+		"success":    true,
+		"ticket_id":  id,
+		"claimed_by": req.AgentID,
+		"claimed_at": claimedAt,
+	})
 }
 
 // handleStaleTickets is the board view for work that stopped moving:
