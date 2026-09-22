@@ -19,15 +19,17 @@ type StaleSweeper struct {
 	interval time.Duration
 	window   time.Duration
 	logger   *slog.Logger
+	metrics  *sprintboard.Metrics
 }
 
 // NewStaleSweeper returns a sweeper. interval or window <= 0 means disabled;
-// Run is then a no-op, which is how the default-off deployment behaves.
-func NewStaleSweeper(store *sprintboard.Store, interval, window time.Duration, logger *slog.Logger) *StaleSweeper {
+// Run is then a no-op, which is how the default-off deployment behaves. A nil
+// metrics is inert (counts nowhere) so tests need no counter.
+func NewStaleSweeper(store *sprintboard.Store, interval, window time.Duration, logger *slog.Logger, metrics *sprintboard.Metrics) *StaleSweeper {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &StaleSweeper{store: store, interval: interval, window: window, logger: logger}
+	return &StaleSweeper{store: store, interval: interval, window: window, logger: logger, metrics: metrics}
 }
 
 // Run blocks until ctx is done, sweeping every interval. A sweep that fails
@@ -63,6 +65,9 @@ func (sw *StaleSweeper) SweepOnce(ctx context.Context) (int64, error) {
 		return 0, err
 	}
 	if released > 0 {
+		if sw.metrics != nil {
+			sw.metrics.IncStaleClaimsReleased(uint64(released))
+		}
 		sw.logger.Warn("stale-claim sweeper released claims",
 			slog.Int64("released", released), slog.Duration("window", sw.window))
 	}

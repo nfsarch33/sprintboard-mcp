@@ -27,7 +27,11 @@ func (s *Store) RenewClaim(ticketID, agentID string) (time.Time, error) {
 	if agentID == "" {
 		return time.Time{}, errors.New("sprintboard: agent_id is required")
 	}
-	now := time.Now().UTC()
+	// formatTime(time.Now()), NOT .UTC(): ClaimTicket stamps local time and
+	// ReleaseStaleClaims compares claimed_at lexically in SQL — mixing UTC
+	// and offset-bearing stamps breaks that compare exactly the way
+	// StaleInProgress's comment warns about. One clock convention per column.
+	now := time.Now()
 	res, err := s.db.Exec(
 		`UPDATE tickets SET claimed_at = ?, updated_at = ?
 		 WHERE id = ? AND claimed_by = ? AND status = ?`,

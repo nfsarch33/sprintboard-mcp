@@ -43,6 +43,11 @@ func NewServer(store *sprintboard.Store, logger *slog.Logger) *Server {
 	return s
 }
 
+// Metrics exposes the server's counters so long-lived companions started in
+// main (the stale sweeper, v18860-1) share one /metrics surface instead of
+// keeping private counts.
+func (s *Server) Metrics() *sprintboard.Metrics { return s.metrics }
+
 // SetJWTAuth wires the JWT middleware (v18680-2). Must be called after
 // NewServer and before Handler() returns. Pass nil to disable JWT.
 func (s *Server) SetJWTAuth(auth *JWTAuthenticator) { s.jwt = auth }

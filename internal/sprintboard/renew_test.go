@@ -18,8 +18,9 @@ func TestRenewClaim_RefreshesLease(t *testing.T) {
 	if _, err := s.ClaimTicket("T1", "agent-a"); err != nil {
 		t.Fatalf("claim: %v", err)
 	}
-	// Age the claim past the sweeper window.
-	old := time.Now().UTC().Add(-time.Hour)
+	// Age the claim past the sweeper window. Local time, matching how
+	// ClaimTicket and RenewClaim stamp — one clock convention per column.
+	old := time.Now().Add(-time.Hour)
 	if _, err := s.db.Exec(`UPDATE tickets SET claimed_at = ? WHERE id = ?`, formatTime(old), "T1"); err != nil {
 		t.Fatalf("age claim: %v", err)
 	}
@@ -51,8 +52,15 @@ func TestRenewClaim_WrongAgentOrNotInProgressRejected(t *testing.T) {
 	if _, err := s.RenewClaim("T1", "agent-b"); !errors.Is(err, ErrTicketNotClaimedBy) {
 		t.Fatalf("renew by non-holder = %v, want ErrTicketNotClaimedBy", err)
 	}
-	if _, err := s.ClaimTicket("T1", "agent-a"); err == nil {
-		t.Fatal("double claim should not succeed")
+	// A claim by a DIFFERENT agent on a held ticket is refused as a conflict
+	// RESULT (Success=false, err == nil) — that is the contract Claude's
+	// review pinned. A same-agent re-claim is idempotent (ClaimTicket
+	// re-stamps its own claim), which is what makes renewal safe.
+	if res, err := s.ClaimTicket("T1", "agent-b"); err != nil || res.Success {
+		t.Fatalf("claim by non-holder: err=%v success=%v, want a refused ClaimResult", err, res.Success)
+	}
+	if res, err := s.ClaimTicket("T1", "agent-a"); err != nil || !res.Success {
+		t.Fatalf("same-agent re-claim: err=%v success=%v, want the idempotent success", err, res.Success)
 	}
 	if err := s.CompleteTicket("T1", "agent-a", "evidence", "", ""); err != nil {
 		t.Fatalf("complete: %v", err)
@@ -78,7 +86,7 @@ func TestRenewClaim_SweeperReleasesUnrenewedClaims(t *testing.T) {
 	if _, err := s.ClaimTicket("T2", "agent-b"); err != nil {
 		t.Fatalf("claim: %v", err)
 	}
-	old := formatTime(time.Now().UTC().Add(-time.Hour))
+	old := formatTime(time.Now().Add(-time.Hour))
 	if _, err := s.db.Exec(`UPDATE tickets SET claimed_at = ? WHERE id IN ('T1','T2')`, old); err != nil {
 		t.Fatalf("age claims: %v", err)
 	}

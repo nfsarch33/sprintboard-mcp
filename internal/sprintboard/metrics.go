@@ -23,6 +23,7 @@ type Metrics struct {
 	TicketsResolved   atomic.Uint64
 	TicketsRequeued   atomic.Uint64
 	TicketsRenewed    atomic.Uint64
+	StaleClaimsReleased atomic.Uint64
 	AgentsRegistered  atomic.Uint64
 	HandoffsPublished atomic.Uint64
 	CommentsAdded     atomic.Uint64
@@ -38,6 +39,7 @@ func (m *Metrics) IncTicketsCompleted()  { m.TicketsCompleted.Add(1) }
 func (m *Metrics) IncTicketsResolved()   { m.TicketsResolved.Add(1) }
 func (m *Metrics) IncTicketsRequeued()   { m.TicketsRequeued.Add(1) }
 func (m *Metrics) IncTicketsRenewed()    { m.TicketsRenewed.Add(1) }
+func (m *Metrics) IncStaleClaimsReleased(n uint64) { m.StaleClaimsReleased.Add(n) }
 func (m *Metrics) IncAgentsRegistered()  { m.AgentsRegistered.Add(1) }
 func (m *Metrics) IncHandoffsPublished() { m.HandoffsPublished.Add(1) }
 func (m *Metrics) IncCommentsAdded()     { m.CommentsAdded.Add(1) }
@@ -58,6 +60,7 @@ func (m *Metrics) WritePrometheus(w io.Writer) error {
 		{"sprintboard_tickets_resolved_total", "Tickets closed by a human via the resolve route since process start.", m.TicketsResolved.Load()},
 		{"sprintboard_tickets_requeued_total", "Tickets reopened from a terminal status via the requeue route since process start.", m.TicketsRequeued.Load()},
 		{"sprintboard_tickets_renewed_total", "Claim leases extended via the renew route since process start (v18860-1).", m.TicketsRenewed.Load()},
+		{"sprintboard_stale_claims_released_total", "Expired in_progress claims returned to ready by the stale sweeper since process start (v18860-1).", m.StaleClaimsReleased.Load()},
 		{"sprintboard_agents_registered_total", "Agents registered since process start.", m.AgentsRegistered.Load()},
 		{"sprintboard_handoffs_published_total", "Handoffs published since process start.", m.HandoffsPublished.Load()},
 		{"sprintboard_comments_added_total", "Ticket comments added since process start.", m.CommentsAdded.Load()},
