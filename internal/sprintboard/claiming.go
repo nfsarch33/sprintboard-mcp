@@ -124,17 +124,23 @@ func (s *Store) CompleteTicket(ticketID, agentID, evidence, branch, prURL string
 	completedAt := time.Now()
 	now := formatTime(completedAt)
 
-	var claimedAtRaw sql.NullString
+	var claimedAtRaw, fromRaw sql.NullString
 	if err := s.db.QueryRow(
-		`SELECT claimed_at FROM tickets WHERE id = ? AND claimed_by = ?`,
+		`SELECT claimed_at, status FROM tickets WHERE id = ? AND claimed_by = ?`,
 		ticketID, agentID,
-	).Scan(&claimedAtRaw); err != nil {
+	).Scan(&claimedAtRaw, &fromRaw); err != nil {
 		if err == sql.ErrNoRows {
 			return fmt.Errorf("ticket %q not claimed by %q", ticketID, agentID)
 		}
 		return err
 	}
 	timeToCompleteMS := durationMS(parseTime(nullString(claimedAtRaw)), completedAt)
+	// The transition records the status the claimant completed FROM: in_progress,
+	// or review for a change that waited on a reviewer.
+	fromStatus := TicketStatus(nullString(fromRaw))
+	if fromStatus == "" {
+		fromStatus = StatusInProgress
+	}
 
 	res, err := s.db.Exec(
 		`UPDATE tickets SET status = ?, evidence = ?, updated_at = ?, completed_at = ?,
@@ -154,7 +160,7 @@ func (s *Store) CompleteTicket(ticketID, agentID, evidence, branch, prURL string
 	_, err = s.db.Exec(
 		`INSERT INTO ticket_transitions (ticket_id, from_status, to_status, agent_id, note, timestamp)
 		 VALUES (?, ?, ?, ?, ?, ?)`,
-		ticketID, StatusInProgress, StatusDone, agentID, evidence, now,
+		ticketID, fromStatus, StatusDone, agentID, evidence, now,
 	)
 	return err
 }

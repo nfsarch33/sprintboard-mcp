@@ -102,6 +102,11 @@ func (s *Server) routes() {
 	// v18860-1: claim-lease renewal. The paired half of the stale sweeper —
 	// live work renews instead of being released.
 	s.mux.HandleFunc("POST /api/v1/tickets/{id}/renew", s.handleTicketRenew)
+	// A change waiting on review keeps its claim: review parks the ticket
+	// where the stale-claim sweeper does not look, and rework hands it back
+	// to the claimant with a fresh lease. See handleTicketReview.
+	s.mux.HandleFunc("POST /api/v1/tickets/{id}/review", s.handleTicketReview)
+	s.mux.HandleFunc("POST /api/v1/tickets/{id}/rework", s.handleTicketRework)
 	// Registered before the {id} pattern is irrelevant to ServeMux -- the
 	// literal segment is the more specific pattern and wins regardless, the
 	// same way /api/v1/tickets/search already does.
