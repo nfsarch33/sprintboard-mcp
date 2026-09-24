@@ -143,28 +143,38 @@ func NewStore(dbPath string) (*Store, error) {
 	return Open(dbPath)
 }
 
+// sqliteDSN carries the connection pragmas in the DSN, so every connection the pool
+// opens gets them. A pragma issued once with db.Exec reaches one connection only; a
+// replacement connection ran with busy_timeout 0 and failed a write at once with
+// "database is locked". _txlock=immediate makes Begin take the write lock up front
+// (waiting up to busy_timeout), so a read-then-write transaction such as a claim cannot
+// fail on a snapshot another writer's commit made stale. synchronous(NORMAL) is safe in
+// WAL mode (an application crash loses nothing, an OS crash can lose the last commits)
+// and cuts a write on a slow disk from hundreds of milliseconds to a few, which shortens
+// every lock the other writers wait on.
+func sqliteDSN(path string) string {
+	sep := "?"
+	if strings.Contains(path, "?") {
+		sep = "&"
+	}
+	return path + sep + "_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_txlock=immediate"
+}
+
 func Open(dbPath string) (*Store, error) {
 	dir := filepath.Dir(dbPath)
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, fmt.Errorf("create db dir: %w", err)
 	}
 
-	db, err := sql.Open("sqlite", dbPath)
+	db, err := sql.Open("sqlite", sqliteDSN(dbPath))
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
 	}
-
-	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("set WAL: %w", err)
-	}
-
-	if _, err := db.Exec("PRAGMA busy_timeout=5000"); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("set busy_timeout: %w", err)
-	}
-
 	db.SetMaxOpenConns(1)
+	if err := db.Ping(); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("open db: %w", err)
+	}
 
 	s := &Store{db: &dialectDB{raw: db, dialect: DialectSQLite}}
 	if err := s.migrate(); err != nil {
