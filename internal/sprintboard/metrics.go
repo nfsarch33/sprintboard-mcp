@@ -17,32 +17,36 @@ import (
 
 // Metrics holds the per-process counters. Create one per Store/Server.
 type Metrics struct {
-	TicketsCreated    atomic.Uint64
-	TicketsClaimed    atomic.Uint64
-	TicketsCompleted  atomic.Uint64
-	TicketsResolved   atomic.Uint64
-	TicketsRequeued   atomic.Uint64
-	TicketsRenewed    atomic.Uint64
-	StaleClaimsReleased atomic.Uint64
-	AgentsRegistered  atomic.Uint64
-	HandoffsPublished atomic.Uint64
-	CommentsAdded     atomic.Uint64
+	TicketsCreated            atomic.Uint64
+	TicketsClaimed            atomic.Uint64
+	TicketsCompleted          atomic.Uint64
+	TicketsResolved           atomic.Uint64
+	TicketsRequeued           atomic.Uint64
+	TicketsRenewed            atomic.Uint64
+	TicketsSubmittedForReview atomic.Uint64
+	TicketsReturnedToWork     atomic.Uint64
+	StaleClaimsReleased       atomic.Uint64
+	AgentsRegistered          atomic.Uint64
+	HandoffsPublished         atomic.Uint64
+	CommentsAdded             atomic.Uint64
 }
 
 // NewMetrics returns a zero-initialised Metrics.
 func NewMetrics() *Metrics { return &Metrics{} }
 
 // IncTicketsCreated is a convenience wrapper for the most common call.
-func (m *Metrics) IncTicketsCreated()    { m.TicketsCreated.Add(1) }
-func (m *Metrics) IncTicketsClaimed()    { m.TicketsClaimed.Add(1) }
-func (m *Metrics) IncTicketsCompleted()  { m.TicketsCompleted.Add(1) }
-func (m *Metrics) IncTicketsResolved()   { m.TicketsResolved.Add(1) }
-func (m *Metrics) IncTicketsRequeued()   { m.TicketsRequeued.Add(1) }
-func (m *Metrics) IncTicketsRenewed()    { m.TicketsRenewed.Add(1) }
+func (m *Metrics) IncTicketsCreated()              { m.TicketsCreated.Add(1) }
+func (m *Metrics) IncTicketsClaimed()              { m.TicketsClaimed.Add(1) }
+func (m *Metrics) IncTicketsCompleted()            { m.TicketsCompleted.Add(1) }
+func (m *Metrics) IncTicketsResolved()             { m.TicketsResolved.Add(1) }
+func (m *Metrics) IncTicketsRequeued()             { m.TicketsRequeued.Add(1) }
+func (m *Metrics) IncTicketsRenewed()              { m.TicketsRenewed.Add(1) }
+func (m *Metrics) IncTicketsSubmittedForReview()   { m.TicketsSubmittedForReview.Add(1) }
+func (m *Metrics) IncTicketsReturnedToWork()       { m.TicketsReturnedToWork.Add(1) }
 func (m *Metrics) IncStaleClaimsReleased(n uint64) { m.StaleClaimsReleased.Add(n) }
-func (m *Metrics) IncAgentsRegistered()  { m.AgentsRegistered.Add(1) }
-func (m *Metrics) IncHandoffsPublished() { m.HandoffsPublished.Add(1) }
-func (m *Metrics) IncCommentsAdded()     { m.CommentsAdded.Add(1) }
+func (m *Metrics) IncAgentsRegistered()            { m.AgentsRegistered.Add(1) }
+func (m *Metrics) IncHandoffsPublished()           { m.HandoffsPublished.Add(1) }
+func (m *Metrics) IncCommentsAdded()               { m.CommentsAdded.Add(1) }
 
 // WritePrometheus emits the metrics in Prometheus text format. Counter
 // names use the "sprintboard_" prefix per the Prometheus naming
@@ -60,6 +64,8 @@ func (m *Metrics) WritePrometheus(w io.Writer) error {
 		{"sprintboard_tickets_resolved_total", "Tickets closed by a human via the resolve route since process start.", m.TicketsResolved.Load()},
 		{"sprintboard_tickets_requeued_total", "Tickets reopened from a terminal status via the requeue route since process start.", m.TicketsRequeued.Load()},
 		{"sprintboard_tickets_renewed_total", "Claim leases extended via the renew route since process start (v18860-1).", m.TicketsRenewed.Load()},
+		{"sprintboard_tickets_submitted_for_review_total", "Tickets moved from in_progress to review by their claimant since process start.", m.TicketsSubmittedForReview.Load()},
+		{"sprintboard_tickets_returned_to_work_total", "Tickets sent back from review to in_progress by a reviewer since process start.", m.TicketsReturnedToWork.Load()},
 		{"sprintboard_stale_claims_released_total", "Expired in_progress claims returned to ready by the stale sweeper since process start (v18860-1).", m.StaleClaimsReleased.Load()},
 		{"sprintboard_agents_registered_total", "Agents registered since process start.", m.AgentsRegistered.Load()},
 		{"sprintboard_handoffs_published_total", "Handoffs published since process start.", m.HandoffsPublished.Load()},
